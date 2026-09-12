@@ -1,2 +1,2 @@
 export { appointmentsRoutes } from "./appointments.routes";
-export { appointmentsService } from "./appointments.service";
+export { appointmentsService, getAppointmentOrThrow } from "./appointments.service";

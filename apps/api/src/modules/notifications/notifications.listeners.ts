@@ -1,16 +1,22 @@
 import { domainEvents } from "../../shared/events/domainEvents";
+import { notificationsService } from "./notifications.service";
 
-/**
- * There's no Notification model/persistence yet (that's future work for this module).
- * Wiring the listeners now proves the event bus works end-to-end for `appointments`
- * and gives a single place to plug in real delivery (push/email) later.
- */
 export function registerNotificationListeners(): void {
   domainEvents.onEvent("AppointmentCreated", (appointment) => {
-    console.log(`[notifications] agendamento ${appointment.id} criado para o cliente ${appointment.clientId}`);
+    void notificationsService.notify(
+      appointment.clientId,
+      "APPOINTMENT_CREATED",
+      "Agendamento criado",
+      "O seu agendamento foi criado e está pendente de confirmação.",
+    );
   });
 
   domainEvents.onEvent("AppointmentCancelled", (appointment) => {
-    console.log(`[notifications] agendamento ${appointment.id} cancelado`);
+    void notificationsService.notify(
+      appointment.clientId,
+      "APPOINTMENT_CANCELLED",
+      "Agendamento cancelado",
+      "O seu agendamento foi cancelado.",
+    );
   });
 }

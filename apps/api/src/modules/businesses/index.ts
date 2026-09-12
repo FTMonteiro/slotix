@@ -1,2 +1,2 @@
 export { businessesRoutes } from "./businesses.routes";
-export { businessesService, getBusinessOrThrow, assertBusinessOwner } from "./businesses.service";
+export { businessesService, getBusinessOrThrow, assertBusinessOwner, toBusinessDTO } from "./businesses.service";

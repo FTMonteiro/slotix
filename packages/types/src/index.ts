@@ -118,3 +118,37 @@ export interface CreateAppointmentRequest {
   scheduledAt: string;
   notes?: string;
 }
+
+export interface FavoriteDTO {
+  id: string;
+  businessId: string;
+  business: BusinessDTO;
+  createdAt: string;
+}
+
+export interface ReviewDTO {
+  id: string;
+  businessId: string;
+  clientId: string;
+  clientName: string;
+  appointmentId: string;
+  rating: number;
+  comment: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateReviewRequest {
+  appointmentId: string;
+  rating: number;
+  comment?: string;
+}
+
+export interface NotificationDTO {
+  id: string;
+  type: string;
+  title: string;
+  message: string;
+  read: boolean;
+  createdAt: string;
+}

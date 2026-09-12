@@ -3,7 +3,7 @@ import { AuthorizationError, NotFoundError } from "../../shared/errors";
 import { businessesRepository } from "./businesses.repository";
 import type { CreateBusinessInput, UpdateBusinessInput } from "./businesses.schema";
 
-function toBusinessDTO(business: {
+export function toBusinessDTO(business: {
   id: string;
   ownerId: string;
   name: string;

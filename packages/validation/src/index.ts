@@ -28,8 +28,20 @@ export const rescheduleAppointmentSchema = z.object({
   scheduledAt: z.string().datetime(),
 });
 
+export const createFavoriteSchema = z.object({
+  businessId: z.string().uuid(),
+});
+
+export const createReviewSchema = z.object({
+  appointmentId: z.string().uuid(),
+  rating: z.number().int().min(1).max(5),
+  comment: z.string().max(2000).optional(),
+});
+
 export type LoginInput = z.infer<typeof loginSchema>;
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type RefreshInput = z.infer<typeof refreshSchema>;
 export type CreateAppointmentInput = z.infer<typeof createAppointmentSchema>;
 export type RescheduleAppointmentInput = z.infer<typeof rescheduleAppointmentSchema>;
+export type CreateFavoriteInput = z.infer<typeof createFavoriteSchema>;
+export type CreateReviewInput = z.infer<typeof createReviewSchema>;

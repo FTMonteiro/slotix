@@ -1,4 +1,3 @@
-import { notImplementedRouter } from "../../shared/utils/notImplementedRouter";
-
-export const notificationsRoutes = notImplementedRouter("notifications");
+export { notificationsRoutes } from "./notifications.routes";
 export { registerNotificationListeners } from "./notifications.listeners";
+export { notificationsService } from "./notifications.service";

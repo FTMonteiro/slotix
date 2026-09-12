@@ -27,9 +27,10 @@ SLOTIX/
   usado por Web e Mobile via header `Authorization: Bearer`.
 - Cada módulo completo segue o padrão `*.controller.ts` → `*.service.ts` →
   `*.repository.ts`, com validação Zod em `*.schema.ts`.
-- Módulos ainda não implementados (`payments`, `notifications`, `favorites`,
-  `reviews`, `gallery`) existem como pastas reservadas com um router placeholder
-  (`501 Not Implemented`) até serem construídos.
+- Módulos ainda não implementados (`payments`, `gallery`) existem como pastas
+  reservadas com um router placeholder (`501 Not Implemented`) até serem
+  construídos — dependem de decisões externas (gateway de pagamento, storage
+  de imagens) ainda não tomadas.
 
 ## Instalação
 
@@ -67,9 +68,11 @@ npm run dev:mobile   # Expo (usa o app Expo Go ou um simulador)
 npm run test:api
 ```
 
-Cobre as regras críticas de `auth` (registo duplicado, credenciais inválidas)
-e `appointments` (serviço/profissional inexistente ou inativo, horário
-indisponível, permissões, transições de estado).
+Cobre as regras críticas de `auth` (registo duplicado, credenciais inválidas),
+`appointments` (serviço/profissional inexistente ou inativo, horário
+indisponível, permissões, transições de estado), `reviews` (só é possível
+avaliar um agendamento próprio e concluído, uma única vez) e `favorites`
+(sem duplicados).
 
 ## API
 
@@ -82,7 +85,8 @@ Todas as respostas seguem o mesmo envelope:
 
 Rotas principais (ver `apps/api/src/app/routes.ts`):
 `/api/v1/auth`, `/api/v1/users`, `/api/v1/businesses`, `/api/v1/clients`,
-`/api/v1/professionals`, `/api/v1/services`, `/api/v1/appointments`.
+`/api/v1/professionals`, `/api/v1/services`, `/api/v1/appointments`,
+`/api/v1/favorites`, `/api/v1/reviews`, `/api/v1/notifications`.
 
 ## Deployment
 
