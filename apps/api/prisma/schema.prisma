@@ -1,0 +1,131 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  CUSTOMER
+  OWNER
+  EMPLOYEE
+  ADMIN
+}
+
+enum AppointmentStatus {
+  PENDING
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  phone        String?
+  role         Role     @default(CUSTOMER)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  ownedBusinesses    Business[]     @relation("BusinessOwner")
+  professionalProfile Professional?
+  appointments       Appointment[]  @relation("AppointmentClient")
+  refreshTokens      RefreshToken[]
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model Business {
+  id          String   @id @default(uuid())
+  ownerId     String
+  owner       User     @relation("BusinessOwner", fields: [ownerId], references: [id])
+  name        String
+  description String?
+  address     String?
+  phone       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  professionals Professional[]
+  services      Service[]
+  appointments  Appointment[]
+
+  @@index([ownerId])
+  @@map("businesses")
+}
+
+model Professional {
+  id         String   @id @default(uuid())
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  userId     String   @unique
+  user       User     @relation(fields: [userId], references: [id])
+  bio        String?
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  appointments Appointment[]
+
+  @@index([businessId])
+  @@map("professionals")
+}
+
+model Service {
+  id          String   @id @default(uuid())
+  businessId  String
+  business    Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  price       Decimal  @db.Decimal(10, 2)
+  duration    Int
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  appointments Appointment[]
+
+  @@index([businessId])
+  @@map("services")
+}
+
+model Appointment {
+  id             String            @id @default(uuid())
+  businessId     String
+  business       Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  clientId       String
+  client         User              @relation("AppointmentClient", fields: [clientId], references: [id])
+  serviceId      String
+  service        Service           @relation(fields: [serviceId], references: [id])
+  professionalId String
+  professional   Professional      @relation(fields: [professionalId], references: [id])
+  scheduledAt    DateTime
+  durationMinutes Int
+  price          Decimal           @db.Decimal(10, 2)
+  status         AppointmentStatus @default(PENDING)
+  notes          String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  @@index([businessId])
+  @@index([clientId])
+  @@index([professionalId, scheduledAt])
+  @@map("appointments")
+}
