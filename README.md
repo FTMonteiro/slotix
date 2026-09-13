@@ -21,7 +21,7 @@ SLOTIX/
   vive em `apps/api`, organizado em módulos por domínio
   (`auth`, `users`, `businesses`, `clients`, `professionals`, `services`,
   `availability`, `appointments`, `payments`, `notifications`, `favorites`,
-  `reviews`, `gallery`).
+  `reviews`, `gallery`, `search`).
 - **Frontend nunca acede à base de dados**: Web e Mobile falam apenas com a API
   REST versionada em `/api/v1`.
 - **Autenticação centralizada**: JWT (access + refresh) emitido pela API,
@@ -80,7 +80,9 @@ duplicados), `businesses` (filtros e cálculo de rating/paginação), `users`
 (soft delete), `payments` (valor sempre vindo da appointment nunca do
 cliente, duplicados, ownership, transições de estado válidas/inválidas) e
 `gallery` (tipo de ficheiro, limite de imagens, ownership, falha
-best-effort do storage — com o cliente Supabase mockado).
+best-effort do storage — com o cliente Supabase mockado) e `search`
+(correspondência por palavra, `nearest` sem localização, ordenação em
+cada modo, paginação).
 
 ## API
 
@@ -100,8 +102,11 @@ Respostas de lista (`GET /businesses`) incluem paginação:
 Rotas principais (ver `apps/api/src/app/routes.ts`):
 `/api/v1/auth` (`register`, `login`, `refresh`, `logout`, `me`),
 `/api/v1/users` (`me` — GET/PATCH/DELETE, `me/password`),
-`/api/v1/businesses` (com filtros `?category=&search=&minRating=&minPrice=&maxPrice=&page=&limit=`,
+`/api/v1/businesses` (com filtros
+`?category=&search=&minRating=&minPrice=&maxPrice=&latitude=&longitude=&radiusKm=&page=&limit=`,
 mais `/:id/services`, `/:id/professionals`, `/:id/reviews`, `/:id/hours` — GET público, PUT do OWNER),
+`/api/v1/search?q=...&latitude=&longitude=&sortBy=recommended|nearest|bestPrice|topRated&page=&limit=`
+(pesquisa livre — ver secção Search abaixo),
 `/api/v1/clients`, `/api/v1/professionals` (mais `/:id/blocks` — folgas/bloqueios,
 geridos pelo OWNER ou pelo próprio profissional), `/api/v1/services`,
 `/api/v1/availability?businessId=&professionalId=&serviceId=&date=YYYY-MM-DD`
@@ -175,6 +180,56 @@ no bucket, nunca uma linha partida na BD.
 Sem `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` configuradas, o resto da
 API funciona normalmente e só o upload falha com `500`, sem detalhes de
 configuração na resposta (só nos logs do servidor).
+
+### Descoberta e pesquisa (Search)
+
+Um negócio criado via `POST /businesses` fica imediatamente visível pela
+mesma API a qualquer consumidor (Web ou Mobile) — não há um passo de
+"publicação" separado nem um cadastro/rota diferente para o mobile.
+`latitude`/`longitude` já existiam em `Business` desde a Fase 1 e não são
+limitadas a Angola (confirmado com um teste real Lisboa↔Luanda, ~5773km).
+
+`GET /search?q=...` combina texto com localização:
+
+- **Correspondência por palavra, não por frase inteira**: `q=cortar cabelo`
+  divide em `["cortar", "cabelo"]` e encontra qualquer negócio ou serviço
+  ativo cujo nome/descrição/categoria contenha *pelo menos uma* dessas
+  palavras — assim "Corte de Cabelo" é encontrado mesmo sem a forma exata
+  "cortar" aparecer no texto. Sem motor de pesquisa nem extensão
+  PostgreSQL nova, só `contains` do Prisma.
+- **`matchedService`**: cada resultado traz o serviço mais relevante do
+  negócio (o que tem mais palavras da pesquisa em comum; empate resolvido
+  pelo mais barato), com nome e preço — ex. `{"name":"Corte Premium","price":12000}`.
+- **`distanceKm`**: calculado com Haversine simples (sem PostGIS) só
+  quando `latitude`/`longitude` são passadas no pedido — nunca guardadas,
+  a localização do utilizador só é usada nesse pedido.
+- **`sortBy`** tem 4 modos previsíveis, cada um a ordenar por exatamente
+  uma dimensão (só `recommended` combina sinais, com critérios de
+  desempate claros):
+  - `recommended` (omissão): rating ponderado → distância → nº de reviews.
+  - `nearest`: distância ascendente — exige `latitude`+`longitude`
+    (`400 SEARCH_LOCATION_REQUIRED` se faltarem).
+  - `bestPrice`: preço do `matchedService` ascendente.
+  - `topRated`: rating ponderado descendente.
+- **Rating ponderado** (`shared/utils/ranking.ts`): uma única avaliação de
+  5 estrelas não ultrapassa um negócio com centenas de avaliações
+  consistentes de 4.6 — a média é "encolhida" para um prior neutro (3.5)
+  até haver reviews suficientes para confiar nela. Isto só afeta a
+  *ordenação*; o `ratingAvg`/`ratingCount` mostrados ao utilizador
+  continuam a ser a média real, exatamente como antes. O módulo `reviews`
+  em si não foi alterado.
+
+`GET /businesses` ganhou os mesmos `latitude`/`longitude`/`radiusKm`
+opcionais (para o ecrã de "explorar", sem termo de pesquisa) — a ordem por
+omissão (mais recentes primeiro) não mudou; só passa a incluir
+`distanceKm` e, com `radiusKm`, filtra o que estiver fora do raio.
+
+A pesquisa/descoberta não recalcula disponibilidade: `matchedService`
+mostra o preço, mas confirmar um horário continua a ser exclusivamente
+`GET /availability` + `POST /appointments`, tal como já existiam — a
+Fase de pesquisa foi verificada em ponta-a-ponta ao vivo exatamente
+por este caminho (criar negócio → aparece na pesquisa → `/availability`
+→ `/appointments`, sem tocar em nenhum dos dois módulos).
 
 ## Deployment
 

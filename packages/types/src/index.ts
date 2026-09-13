@@ -80,6 +80,8 @@ export interface BusinessDTO {
   longitude: number | null;
   ratingAvg: number | null;
   ratingCount: number;
+  // Only present when the request included the viewer's latitude/longitude.
+  distanceKm: number | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -90,6 +92,9 @@ export interface BusinessListQuery {
   minRating?: number;
   minPrice?: number;
   maxPrice?: number;
+  latitude?: number;
+  longitude?: number;
+  radiusKm?: number;
   page?: number;
   limit?: number;
 }
@@ -245,4 +250,26 @@ export interface GalleryImageDTO {
   position: number;
   caption: string | null;
   createdAt: string;
+}
+
+export type SearchSortBy = "recommended" | "nearest" | "bestPrice" | "topRated";
+
+export interface MatchedServiceDTO {
+  id: string;
+  name: string;
+  price: number;
+}
+
+export interface SearchResultDTO {
+  business: BusinessDTO;
+  matchedService: MatchedServiceDTO | null;
+}
+
+export interface SearchQuery {
+  q: string;
+  latitude?: number;
+  longitude?: number;
+  sortBy?: SearchSortBy;
+  page?: number;
+  limit?: number;
 }

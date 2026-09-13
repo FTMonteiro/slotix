@@ -1,7 +1,13 @@
 import type { BusinessDTO, BusinessHoursEntryDTO, PaginationMeta } from "@slotix/types";
 import { AuthorizationError, NotFoundError } from "../../shared/errors";
+import { haversineDistanceKm } from "../../shared/utils/geo";
 import { businessesRepository } from "./businesses.repository";
 import type { CreateBusinessInput, ListBusinessesQuery, SetBusinessHoursInput, UpdateBusinessInput } from "./businesses.schema";
+
+export interface Coordinates {
+  latitude: number;
+  longitude: number;
+}
 
 function ratingOf(reviews: { rating: number }[]): { ratingAvg: number | null; ratingCount: number } {
   if (reviews.length === 0) return { ratingAvg: null, ratingCount: 0 };
@@ -9,22 +15,33 @@ function ratingOf(reviews: { rating: number }[]): { ratingAvg: number | null; ra
   return { ratingAvg: Math.round(avg * 10) / 10, ratingCount: reviews.length };
 }
 
-export function toBusinessDTO(business: {
-  id: string;
-  ownerId: string;
-  name: string;
-  description: string | null;
-  address: string | null;
-  phone: string | null;
-  category: string | null;
-  imageUrl: string | null;
-  latitude: number | null;
-  longitude: number | null;
-  createdAt: Date;
-  updatedAt: Date;
-  reviews?: { rating: number }[];
-}): BusinessDTO {
+// viewerCoords is optional and only ever comes from an explicit lat/lng on the request —
+// existing callers (favorites, reviews, etc.) that don't pass it keep getting
+// distanceKm: null, unchanged from before this field existed.
+export function toBusinessDTO(
+  business: {
+    id: string;
+    ownerId: string;
+    name: string;
+    description: string | null;
+    address: string | null;
+    phone: string | null;
+    category: string | null;
+    imageUrl: string | null;
+    latitude: number | null;
+    longitude: number | null;
+    createdAt: Date;
+    updatedAt: Date;
+    reviews?: { rating: number }[];
+  },
+  viewerCoords?: Coordinates,
+): BusinessDTO {
   const { ratingAvg, ratingCount } = ratingOf(business.reviews ?? []);
+  const distanceKm =
+    viewerCoords && business.latitude !== null && business.longitude !== null
+      ? Math.round(haversineDistanceKm(viewerCoords.latitude, viewerCoords.longitude, business.latitude, business.longitude) * 10) / 10
+      : null;
+
   return {
     id: business.id,
     ownerId: business.ownerId,
@@ -38,6 +55,7 @@ export function toBusinessDTO(business: {
     longitude: business.longitude,
     ratingAvg,
     ratingCount,
+    distanceKm,
     createdAt: business.createdAt.toISOString(),
     updatedAt: business.updatedAt.toISOString(),
   };
@@ -69,8 +87,16 @@ export const businessesService = {
       maxPrice: query.maxPrice,
     });
 
-    const dtos = businesses.map(toBusinessDTO);
-    const filtered = query.minRating !== undefined ? dtos.filter((dto) => (dto.ratingAvg ?? 0) >= query.minRating!) : dtos;
+    const viewerCoords = query.latitude !== undefined && query.longitude !== undefined ? { latitude: query.latitude, longitude: query.longitude } : undefined;
+    const dtos = businesses.map((business) => toBusinessDTO(business, viewerCoords));
+
+    let filtered = query.minRating !== undefined ? dtos.filter((dto) => (dto.ratingAvg ?? 0) >= query.minRating!) : dtos;
+    // radiusKm only means anything alongside coordinates; a business without its own
+    // lat/lng (distanceKm: null) can't be judged against a radius, so it's kept rather
+    // than silently dropped.
+    if (query.radiusKm !== undefined && viewerCoords) {
+      filtered = filtered.filter((dto) => dto.distanceKm === null || dto.distanceKm <= query.radiusKm!);
+    }
 
     const total = filtered.length;
     const start = (query.page - 1) * query.limit;

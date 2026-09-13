@@ -19,6 +19,12 @@ export const listBusinessesQuerySchema = z.object({
   minRating: z.coerce.number().min(0).max(5).optional(),
   minPrice: z.coerce.number().nonnegative().optional(),
   maxPrice: z.coerce.number().nonnegative().optional(),
+  // Only used when both are present: distanceKm is computed on each result, and
+  // radiusKm (if also given) filters out anything further away. No default radius is
+  // applied — omit it and every result still gets a distance, just no filtering.
+  latitude: z.coerce.number().min(-90).max(90).optional(),
+  longitude: z.coerce.number().min(-180).max(180).optional(),
+  radiusKm: z.coerce.number().positive().optional(),
   page: z.coerce.number().int().positive().default(1),
   limit: z.coerce.number().int().positive().max(100).default(20),
 });
