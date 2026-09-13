@@ -1,3 +1,2 @@
-import { notImplementedRouter } from "../../shared/utils/notImplementedRouter";
-
-export const galleryRoutes = notImplementedRouter("gallery");
+export { galleryRoutes } from "./gallery.routes";
+export { galleryService } from "./gallery.service";

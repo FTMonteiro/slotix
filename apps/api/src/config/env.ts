@@ -11,6 +11,10 @@ const envSchema = z.object({
   JWT_REFRESH_EXPIRES_IN: z.string().default("7d"),
   WEB_URL: z.string().optional(),
   MOBILE_APP_SCHEME: z.string().optional(),
+  // Optional: the app boots fine without these, only Gallery uploads need them.
+  SUPABASE_URL: z.string().optional(),
+  SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),
+  SUPABASE_STORAGE_BUCKET: z.string().default("slotix-gallery"),
 });
 
 const parsed = envSchema.safeParse(process.env);

@@ -32,7 +32,10 @@ routes.use("/payments", paymentsRoutes);
 routes.use("/notifications", notificationsRoutes);
 routes.use("/favorites", favoritesRoutes);
 routes.use("/reviews", reviewsRoutes);
-routes.use("/gallery", galleryRoutes);
+// Gallery is business-scoped (upload/list/delete images for one business), so it's
+// mounted nested rather than as a flat top-level resource. gallery.routes.ts uses
+// Router({ mergeParams: true }) to read :businessId from this parent path.
+routes.use("/businesses/:businessId/gallery", galleryRoutes);
 
 // Convenience nested routes composed at the top level (rather than importing across
 // businesses/services/professionals/reviews) to avoid circular module imports — those

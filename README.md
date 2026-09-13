@@ -28,9 +28,8 @@ SLOTIX/
   usado por Web e Mobile via header `Authorization: Bearer`.
 - Cada módulo completo segue o padrão `*.controller.ts` → `*.service.ts` →
   `*.repository.ts`, com validação Zod em `*.schema.ts`.
-- Módulos ainda não implementados (`gallery`) existem como pastas reservadas
-  com um router placeholder (`501 Not Implemented`) até serem construídos —
-  dependem de uma decisão externa (storage de imagens) ainda não tomada.
+- Todos os módulos do plano original estão implementados. O storage de
+  imagens (`gallery`) usa Supabase Storage.
 
 ## Instalação
 
@@ -38,10 +37,13 @@ Requisitos: Node.js 20+, PostgreSQL, npm (workspaces).
 
 ```bash
 npm install
-cp apps/api/.env.example apps/api/.env      # preencher DATABASE_URL e segredos JWT
+cp apps/api/.env.example apps/api/.env      # preencher DATABASE_URL, segredos JWT e (opcional) Supabase
 cp apps/web/.env.example apps/web/.env
 cp apps/mobile/.env.example apps/mobile/.env
 ```
+
+`SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` são opcionais — a API arranca
+sem eles, só os endpoints de `/gallery` (upload) precisam.
 
 ## Base de dados
 
@@ -75,8 +77,10 @@ ou inativo, horário indisponível — incluindo fora de horas e bloqueios —,
 permissões, transições de estado), `reviews` (só é possível avaliar um
 agendamento próprio e concluído, uma única vez), `favorites` (sem
 duplicados), `businesses` (filtros e cálculo de rating/paginação), `users`
-(soft delete) e `payments` (valor sempre vindo da appointment nunca do
-cliente, duplicados, ownership, transições de estado válidas/inválidas).
+(soft delete), `payments` (valor sempre vindo da appointment nunca do
+cliente, duplicados, ownership, transições de estado válidas/inválidas) e
+`gallery` (tipo de ficheiro, limite de imagens, ownership, falha
+best-effort do storage — com o cliente Supabase mockado).
 
 ## API
 
@@ -108,7 +112,9 @@ bloqueios e agendamentos existentes),
 `/api/v1/reviews`, `/api/v1/notifications`,
 `/api/v1/payments` (`POST` cria; `GET` lista os próprios ou `?businessId=` para
 o OWNER; `GET /:id`; `PATCH /:id/pay`, `/:id/fail`, `/:id/refund` — restritos
-ao OWNER do negócio ou a um ADMIN).
+ao OWNER do negócio ou a um ADMIN),
+`/api/v1/businesses/:businessId/gallery` (`GET` público; `POST` — `multipart/form-data`,
+campo `file` + `caption` opcional, OWNER; `DELETE /:id`, OWNER).
 
 `DELETE /users/me` é soft delete (marca `deletedAt`, revoga refresh tokens) —
 appointments/reviews/negócios existentes não são apagados nem ficam órfãos.
@@ -149,6 +155,26 @@ negócio. Só o `OWNER` do negócio (ou um `ADMIN`) pode marcar como
 pago/falhado/reembolsado; o cliente só pode criar e consultar os seus
 próprios pagamentos. `PaymentPaid`/`PaymentRefunded` disparam notificações
 via o mesmo event bus interno usado pelos `appointments`.
+
+### Gallery
+
+Imagens dos espaços, guardadas no **Supabase Storage** (bucket
+`SUPABASE_STORAGE_BUCKET`, por omissão `slotix-gallery` — cria o bucket
+como público no projeto Supabase antes de usar). O upload é
+`multipart/form-data` (via `multer`, buffer em memória — nunca escrito em
+disco, porque a API pode correr num filesystem efémero) com um limite de
+5MB e apenas JPEG/PNG/WEBP/GIF; cada negócio tem um limite de 20 imagens.
+Só o `OWNER` do negócio pode fazer upload/apagar; a listagem é pública.
+
+A base de dados guarda o `url` público e o `path` (a chave no bucket, para
+conseguir apagar o ficheiro depois) — nunca o ficheiro em si. Apagar uma
+imagem remove primeiro a linha da BD (a fonte de verdade para a UI) e só
+depois tenta apagar do storage; se isso falhar, fica só um ficheiro órfão
+no bucket, nunca uma linha partida na BD.
+
+Sem `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` configuradas, o resto da
+API funciona normalmente e só o upload falha com `500`, sem detalhes de
+configuração na resposta (só nos logs do servidor).
 
 ## Deployment
 

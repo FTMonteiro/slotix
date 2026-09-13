@@ -237,3 +237,12 @@ export interface CreatePaymentRequest {
   appointmentId: string;
   method: PaymentMethod;
 }
+
+export interface GalleryImageDTO {
+  id: string;
+  businessId: string;
+  url: string;
+  position: number;
+  caption: string | null;
+  createdAt: string;
+}

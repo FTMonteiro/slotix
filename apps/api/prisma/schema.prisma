@@ -97,9 +97,26 @@ model Business {
   reviews       Review[]
   hours         BusinessHours[]
   payments      Payment[]
+  galleryImages GalleryImage[]
 
   @@index([ownerId])
   @@map("businesses")
+}
+
+// url is the public URL served to clients; path is the object key inside the storage
+// bucket, kept so a delete can remove the underlying file, not just this row.
+model GalleryImage {
+  id         String   @id @default(uuid())
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  url        String
+  path       String
+  position   Int      @default(0)
+  caption    String?
+  createdAt  DateTime @default(now())
+
+  @@index([businessId, position])
+  @@map("gallery_images")
 }
 
 // One row per open window; a day with no rows is closed, and a day can have several
