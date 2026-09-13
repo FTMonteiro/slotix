@@ -1,7 +1,7 @@
-import type { BusinessDTO, PaginationMeta } from "@slotix/types";
+import type { BusinessDTO, BusinessHoursEntryDTO, PaginationMeta } from "@slotix/types";
 import { AuthorizationError, NotFoundError } from "../../shared/errors";
 import { businessesRepository } from "./businesses.repository";
-import type { CreateBusinessInput, ListBusinessesQuery, UpdateBusinessInput } from "./businesses.schema";
+import type { CreateBusinessInput, ListBusinessesQuery, SetBusinessHoursInput, UpdateBusinessInput } from "./businesses.schema";
 
 function ratingOf(reviews: { rating: number }[]): { ratingAvg: number | null; ratingCount: number } {
   if (reviews.length === 0) return { ratingAvg: null, ratingCount: 0 };
@@ -95,5 +95,19 @@ export const businessesService = {
     const business = await getBusinessOrThrow(id);
     assertBusinessOwner(business, ownerId);
     await businessesRepository.delete(id);
+  },
+
+  async getHours(businessId: string): Promise<BusinessHoursEntryDTO[]> {
+    await getBusinessOrThrow(businessId);
+    const hours = await businessesRepository.findHours(businessId);
+    return hours.map((h) => ({ dayOfWeek: h.dayOfWeek, startMinute: h.startMinute, endMinute: h.endMinute }));
+  },
+
+  async setHours(businessId: string, ownerId: string, input: SetBusinessHoursInput): Promise<BusinessHoursEntryDTO[]> {
+    const business = await getBusinessOrThrow(businessId);
+    assertBusinessOwner(business, ownerId);
+
+    await businessesRepository.setHours(businessId, input.hours);
+    return businessesService.getHours(businessId);
   },
 };

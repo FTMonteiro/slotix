@@ -1,7 +1,7 @@
 import type { Request, Response } from "express";
 import { sendListSuccess, sendSuccess } from "../../shared/utils/apiResponse";
 import { businessesService } from "./businesses.service";
-import type { CreateBusinessInput, ListBusinessesQuery, UpdateBusinessInput } from "./businesses.schema";
+import type { CreateBusinessInput, ListBusinessesQuery, SetBusinessHoursInput, UpdateBusinessInput } from "./businesses.schema";
 
 export const businessesController = {
   async create(req: Request, res: Response) {
@@ -28,5 +28,15 @@ export const businessesController = {
   async remove(req: Request<{ id: string }>, res: Response) {
     await businessesService.remove(req.params.id, req.user!.id);
     sendSuccess(res, { deleted: true });
+  },
+
+  async getHours(req: Request<{ id: string }>, res: Response) {
+    const hours = await businessesService.getHours(req.params.id);
+    sendSuccess(res, hours);
+  },
+
+  async setHours(req: Request<{ id: string }>, res: Response) {
+    const hours = await businessesService.setHours(req.params.id, req.user!.id, req.body as SetBusinessHoursInput);
+    sendSuccess(res, hours);
   },
 };

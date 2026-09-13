@@ -1,9 +1,9 @@
-import type { ProfessionalDTO } from "@slotix/types";
+import type { ProfessionalBlockDTO, ProfessionalDTO } from "@slotix/types";
 import { ConflictError, NotFoundError, ValidationError } from "../../shared/errors";
 import { assertBusinessOwner, getBusinessOrThrow } from "../businesses";
 import { usersRepository } from "../users";
 import { professionalsRepository } from "./professionals.repository";
-import type { CreateProfessionalInput, UpdateProfessionalInput } from "./professionals.schema";
+import type { CreateBlockInput, CreateProfessionalInput, UpdateProfessionalInput } from "./professionals.schema";
 
 function toProfessionalDTO(professional: {
   id: string;
@@ -41,6 +41,23 @@ export async function getProfessionalOrThrow(id: string) {
   const professional = await professionalsRepository.findById(id);
   if (!professional) throw new NotFoundError("Profissional não encontrado.", "PROFESSIONAL_NOT_FOUND");
   return professional;
+}
+
+function toBlockDTO(block: { id: string; professionalId: string; startAt: Date; endAt: Date; reason: string | null }): ProfessionalBlockDTO {
+  return {
+    id: block.id,
+    professionalId: block.professionalId,
+    startAt: block.startAt.toISOString(),
+    endAt: block.endAt.toISOString(),
+    reason: block.reason,
+  };
+}
+
+async function assertCanManageBlocks(professional: { businessId: string; userId: string }, requesterId: string): Promise<void> {
+  if (professional.userId === requesterId) return;
+
+  const business = await getBusinessOrThrow(professional.businessId);
+  assertBusinessOwner(business, requesterId);
 }
 
 export const professionalsService = {
@@ -86,5 +103,38 @@ export const professionalsService = {
     assertBusinessOwner(business, ownerId);
 
     await professionalsRepository.delete(id);
+  },
+
+  async addBlock(professionalId: string, requesterId: string, input: CreateBlockInput): Promise<ProfessionalBlockDTO> {
+    const professional = await getProfessionalOrThrow(professionalId);
+    await assertCanManageBlocks(professional, requesterId);
+
+    const block = await professionalsRepository.createBlock({
+      professionalId,
+      startAt: new Date(input.startAt),
+      endAt: new Date(input.endAt),
+      reason: input.reason,
+    });
+    return toBlockDTO(block);
+  },
+
+  async listBlocks(professionalId: string, requesterId: string): Promise<ProfessionalBlockDTO[]> {
+    const professional = await getProfessionalOrThrow(professionalId);
+    await assertCanManageBlocks(professional, requesterId);
+
+    const blocks = await professionalsRepository.findBlocksByProfessional(professionalId);
+    return blocks.map(toBlockDTO);
+  },
+
+  async removeBlock(professionalId: string, blockId: string, requesterId: string): Promise<void> {
+    const professional = await getProfessionalOrThrow(professionalId);
+    await assertCanManageBlocks(professional, requesterId);
+
+    const block = await professionalsRepository.findBlockById(blockId);
+    if (!block || block.professionalId !== professionalId) {
+      throw new NotFoundError("Bloqueio não encontrado.", "BLOCK_NOT_FOUND");
+    }
+
+    await professionalsRepository.deleteBlock(blockId);
   },
 };

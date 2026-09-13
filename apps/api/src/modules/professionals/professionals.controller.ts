@@ -2,7 +2,7 @@ import type { Request, Response } from "express";
 import { ValidationError } from "../../shared/errors";
 import { sendSuccess } from "../../shared/utils/apiResponse";
 import { professionalsService } from "./professionals.service";
-import type { CreateProfessionalInput, UpdateProfessionalInput } from "./professionals.schema";
+import type { CreateBlockInput, CreateProfessionalInput, UpdateProfessionalInput } from "./professionals.schema";
 
 export const professionalsController = {
   async create(req: Request, res: Response) {
@@ -30,6 +30,21 @@ export const professionalsController = {
 
   async remove(req: Request<{ id: string }>, res: Response) {
     await professionalsService.remove(req.params.id, req.user!.id);
+    sendSuccess(res, { deleted: true });
+  },
+
+  async addBlock(req: Request<{ id: string }>, res: Response) {
+    const block = await professionalsService.addBlock(req.params.id, req.user!.id, req.body as CreateBlockInput);
+    sendSuccess(res, block, 201);
+  },
+
+  async listBlocks(req: Request<{ id: string }>, res: Response) {
+    const blocks = await professionalsService.listBlocks(req.params.id, req.user!.id);
+    sendSuccess(res, blocks);
+  },
+
+  async removeBlock(req: Request<{ id: string; blockId: string }>, res: Response) {
+    await professionalsService.removeBlock(req.params.id, req.params.blockId, req.user!.id);
     sendSuccess(res, { deleted: true });
   },
 };

@@ -15,5 +15,16 @@ export const updateProfessionalSchema = z.object({
   active: z.boolean().optional(),
 });
 
+export const createBlockSchema = z
+  .object({
+    startAt: z.string().datetime(),
+    endAt: z.string().datetime(),
+    reason: z.string().optional(),
+  })
+  .refine((block) => new Date(block.endAt) > new Date(block.startAt), {
+    message: "endAt tem de ser depois de startAt",
+  });
+
 export type CreateProfessionalInput = z.infer<typeof createProfessionalSchema>;
 export type UpdateProfessionalInput = z.infer<typeof updateProfessionalSchema>;
+export type CreateBlockInput = z.infer<typeof createBlockSchema>;

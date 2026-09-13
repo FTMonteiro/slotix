@@ -94,6 +94,31 @@ export interface BusinessListQuery {
   limit?: number;
 }
 
+export interface BusinessHoursEntryDTO {
+  dayOfWeek: number;
+  startMinute: number;
+  endMinute: number;
+}
+
+export interface ProfessionalBlockDTO {
+  id: string;
+  professionalId: string;
+  startAt: string;
+  endAt: string;
+  reason: string | null;
+}
+
+export interface AvailabilityQuery {
+  businessId: string;
+  professionalId: string;
+  serviceId: string;
+  date: string;
+}
+
+export interface AvailabilitySlotDTO {
+  time: string;
+}
+
 export interface ServiceDTO {
   id: string;
   businessId: string;

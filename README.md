@@ -20,7 +20,8 @@ SLOTIX/
 - **Um único backend**: toda a lógica de negócio, autenticação e acesso a dados
   vive em `apps/api`, organizado em módulos por domínio
   (`auth`, `users`, `businesses`, `clients`, `professionals`, `services`,
-  `appointments`, `payments`, `notifications`, `favorites`, `reviews`, `gallery`).
+  `availability`, `appointments`, `payments`, `notifications`, `favorites`,
+  `reviews`, `gallery`).
 - **Frontend nunca acede à base de dados**: Web e Mobile falam apenas com a API
   REST versionada em `/api/v1`.
 - **Autenticação centralizada**: JWT (access + refresh) emitido pela API,
@@ -69,11 +70,13 @@ npm run test:api
 ```
 
 Cobre as regras críticas de `auth` (registo duplicado, credenciais inválidas),
-`appointments` (serviço/profissional inexistente ou inativo, horário
-indisponível, permissões, transições de estado), `reviews` (só é possível
-avaliar um agendamento próprio e concluído, uma única vez), `favorites`
-(sem duplicados), `businesses` (filtros e cálculo de rating/paginação) e
-`users` (soft delete).
+`availability`/scheduling (cálculo puro de slots livres, horário de
+funcionamento, bloqueios), `appointments` (serviço/profissional inexistente
+ou inativo, horário indisponível — incluindo fora de horas e bloqueios —,
+permissões, transições de estado), `reviews` (só é possível avaliar um
+agendamento próprio e concluído, uma única vez), `favorites` (sem
+duplicados), `businesses` (filtros e cálculo de rating/paginação) e `users`
+(soft delete).
 
 ## API
 
@@ -94,8 +97,12 @@ Rotas principais (ver `apps/api/src/app/routes.ts`):
 `/api/v1/auth` (`register`, `login`, `refresh`, `logout`, `me`),
 `/api/v1/users` (`me` — GET/PATCH/DELETE, `me/password`),
 `/api/v1/businesses` (com filtros `?category=&search=&minRating=&minPrice=&maxPrice=&page=&limit=`,
-mais `/:id/services`, `/:id/professionals`, `/:id/reviews`),
-`/api/v1/clients`, `/api/v1/professionals`, `/api/v1/services`,
+mais `/:id/services`, `/:id/professionals`, `/:id/reviews`, `/:id/hours` — GET público, PUT do OWNER),
+`/api/v1/clients`, `/api/v1/professionals` (mais `/:id/blocks` — folgas/bloqueios,
+geridos pelo OWNER ou pelo próprio profissional), `/api/v1/services`,
+`/api/v1/availability?businessId=&professionalId=&serviceId=&date=YYYY-MM-DD`
+(devolve os horários livres, já a considerar horário de funcionamento,
+bloqueios e agendamentos existentes),
 `/api/v1/appointments`, `/api/v1/favorites` (`POST/DELETE /:businessId`),
 `/api/v1/reviews`, `/api/v1/notifications`.
 
@@ -103,6 +110,13 @@ mais `/:id/services`, `/:id/professionals`, `/:id/reviews`),
 appointments/reviews/negócios existentes não são apagados nem ficam órfãos.
 Um access token já emitido continua válido até expirar (15 min por omissão);
 só o login/refresh ficam bloqueados de imediato.
+
+Um negócio sem horário configurado é tratado como aberto todos os dias (para
+não quebrar negócios criados antes desta funcionalidade); assim que um dia é
+configurado, os restantes dias sem linhas próprias passam a "fechado".
+`appointments.create`/`reschedule` usam exatamente o mesmo cálculo de
+`shared/utils/scheduling.ts` que `/availability`, por isso um horário aceite
+na criação é sempre um que `/availability` já tinha listado como livre.
 
 ## Deployment
 

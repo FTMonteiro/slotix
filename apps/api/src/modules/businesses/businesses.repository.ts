@@ -85,4 +85,17 @@ export const businessesRepository = {
   delete(id: string) {
     return prisma.business.delete({ where: { id } });
   },
+
+  findHours(businessId: string) {
+    return prisma.businessHours.findMany({ where: { businessId }, orderBy: [{ dayOfWeek: "asc" }, { startMinute: "asc" }] });
+  },
+
+  // Replaces the whole week atomically — simpler and less error-prone than diffing
+  // individual rows, and the week is small enough that this is cheap either way.
+  setHours(businessId: string, hours: { dayOfWeek: number; startMinute: number; endMinute: number }[]) {
+    return prisma.$transaction([
+      prisma.businessHours.deleteMany({ where: { businessId } }),
+      prisma.businessHours.createMany({ data: hours.map((h) => ({ businessId, ...h })) }),
+    ]);
+  },
 };

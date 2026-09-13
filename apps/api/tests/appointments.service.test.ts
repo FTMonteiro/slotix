@@ -13,12 +13,15 @@ const create = vi.fn();
 const findById = vi.fn();
 const findActiveInWindow = vi.fn(async () => []);
 const update = vi.fn();
+const findHours = vi.fn(async () => []);
+const findBlocksInRange = vi.fn(async () => []);
 
 const emitEvent = vi.fn();
 
 vi.mock("../src/modules/businesses", () => ({
   getBusinessOrThrow: (...args: unknown[]) => getBusinessOrThrow(...args),
   assertBusinessOwner: (...args: unknown[]) => assertBusinessOwner(...args),
+  businessesRepository: { findHours: (...args: unknown[]) => findHours(...args) },
 }));
 
 vi.mock("../src/modules/services", () => ({
@@ -27,6 +30,7 @@ vi.mock("../src/modules/services", () => ({
 
 vi.mock("../src/modules/professionals", () => ({
   getProfessionalOrThrow: (...args: unknown[]) => getProfessionalOrThrow(...args),
+  professionalsRepository: { findBlocksInRange: (...args: unknown[]) => findBlocksInRange(...args) },
 }));
 
 vi.mock("../src/modules/appointments/appointments.repository", () => ({
@@ -137,6 +141,46 @@ describe("appointmentsService.create", () => {
         serviceId: "svc-1",
         professionalId: "prof-1",
         scheduledAt: futureDate(),
+      }),
+    ).rejects.toMatchObject({ code: "APPOINTMENT_NOT_AVAILABLE" });
+  });
+
+  it("rejeita quando o horário está fora do horário de funcionamento do negócio", async () => {
+    // Segunda a sexta, 09:00-17:00 — nada configurado para os outros dias.
+    findHours.mockResolvedValue([
+      { dayOfWeek: 1, startMinute: 540, endMinute: 1020 },
+      { dayOfWeek: 2, startMinute: 540, endMinute: 1020 },
+      { dayOfWeek: 3, startMinute: 540, endMinute: 1020 },
+      { dayOfWeek: 4, startMinute: 540, endMinute: 1020 },
+      { dayOfWeek: 5, startMinute: 540, endMinute: 1020 },
+    ]);
+
+    const nextSunday = new Date();
+    nextSunday.setDate(nextSunday.getDate() + ((7 - nextSunday.getDay()) % 7 || 7));
+    nextSunday.setHours(10, 0, 0, 0);
+
+    await expect(
+      appointmentsService.create("client-1", {
+        businessId: "biz-1",
+        serviceId: "svc-1",
+        professionalId: "prof-1",
+        scheduledAt: nextSunday.toISOString(),
+      }),
+    ).rejects.toMatchObject({ code: "APPOINTMENT_NOT_AVAILABLE" });
+  });
+
+  it("rejeita quando o profissional tem um bloqueio (folga) nesse horário", async () => {
+    const scheduledAt = new Date(futureDate());
+    findBlocksInRange.mockResolvedValue([
+      { startAt: new Date(scheduledAt.getTime() - 60 * 60_000), endAt: new Date(scheduledAt.getTime() + 60 * 60_000) },
+    ]);
+
+    await expect(
+      appointmentsService.create("client-1", {
+        businessId: "biz-1",
+        serviceId: "svc-1",
+        professionalId: "prof-1",
+        scheduledAt: scheduledAt.toISOString(),
       }),
     ).rejects.toMatchObject({ code: "APPOINTMENT_NOT_AVAILABLE" });
   });

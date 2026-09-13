@@ -23,6 +23,22 @@ export const listBusinessesQuerySchema = z.object({
   limit: z.coerce.number().int().positive().max(100).default(20),
 });
 
+const businessHoursEntrySchema = z
+  .object({
+    dayOfWeek: z.number().int().min(0).max(6),
+    startMinute: z.number().int().min(0).max(1439),
+    endMinute: z.number().int().min(1).max(1440),
+  })
+  .refine((entry) => entry.endMinute > entry.startMinute, {
+    message: "endMinute tem de ser maior do que startMinute",
+  });
+
+export const setBusinessHoursSchema = z.object({
+  hours: z.array(businessHoursEntrySchema).max(50),
+});
+
 export type CreateBusinessInput = z.infer<typeof createBusinessSchema>;
 export type UpdateBusinessInput = z.infer<typeof updateBusinessSchema>;
 export type ListBusinessesQuery = z.infer<typeof listBusinessesQuerySchema>;
+export type SetBusinessHoursInput = z.infer<typeof setBusinessHoursSchema>;
+export type BusinessHoursEntry = z.infer<typeof businessHoursEntrySchema>;

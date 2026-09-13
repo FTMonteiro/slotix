@@ -2,9 +2,10 @@ import type { AppointmentDTO } from "@slotix/types";
 import type { CreateAppointmentInput, RescheduleAppointmentInput } from "@slotix/validation";
 import { AuthorizationError, ConflictError, NotFoundError, ValidationError } from "../../shared/errors";
 import { domainEvents } from "../../shared/events/domainEvents";
-import { assertBusinessOwner, getBusinessOrThrow } from "../businesses";
+import { isSlotAvailable, resolveDayHours, type TimeWindow } from "../../shared/utils/scheduling";
+import { assertBusinessOwner, businessesRepository, getBusinessOrThrow } from "../businesses";
 import { getServiceOrThrow } from "../services";
-import { getProfessionalOrThrow } from "../professionals";
+import { getProfessionalOrThrow, professionalsRepository } from "../professionals";
 import { appointmentsRepository } from "./appointments.repository";
 
 type RequesterRole = "CUSTOMER" | "OWNER" | "EMPLOYEE" | "ADMIN";
@@ -39,21 +40,30 @@ function toAppointmentDTO(appointment: {
   };
 }
 
-async function assertNoOverlap(professionalId: string, scheduledAt: Date, durationMinutes: number, excludeId?: string) {
+// Checks business hours + professional time-off blocks + existing bookings together —
+// the same three ingredients `availability`'s slot computation uses (see
+// shared/utils/scheduling.ts), so a slot this accepts is exactly one `/availability`
+// would have listed as free.
+async function assertSlotAvailable(businessId: string, professionalId: string, scheduledAt: Date, durationMinutes: number, excludeId?: string) {
   const start = scheduledAt;
   const end = new Date(start.getTime() + durationMinutes * 60_000);
   // 24h lookback safely covers any realistically-sized service duration ending after `start`.
   const windowStart = new Date(start.getTime() - 24 * 60 * 60_000);
 
-  const candidates = await appointmentsRepository.findActiveInWindow(professionalId, windowStart, end, excludeId);
+  const [allHours, existingAppointments, blocks] = await Promise.all([
+    businessesRepository.findHours(businessId),
+    appointmentsRepository.findActiveInWindow(professionalId, windowStart, end, excludeId),
+    professionalsRepository.findBlocksInRange(professionalId, windowStart, end),
+  ]);
 
-  const overlaps = candidates.some((candidate) => {
-    const candidateStart = candidate.scheduledAt.getTime();
-    const candidateEnd = candidateStart + candidate.durationMinutes * 60_000;
-    return candidateStart < end.getTime() && candidateEnd > start.getTime();
-  });
+  const dayHours = resolveDayHours(allHours, start.getDay());
 
-  if (overlaps) {
+  const busy: TimeWindow[] = [
+    ...existingAppointments.map((a) => ({ start: a.scheduledAt, end: new Date(a.scheduledAt.getTime() + a.durationMinutes * 60_000) })),
+    ...blocks.map((b) => ({ start: b.startAt, end: b.endAt })),
+  ];
+
+  if (!isSlotAvailable({ start, end }, dayHours, busy)) {
     throw new ConflictError("Este horário não está disponível.", "APPOINTMENT_NOT_AVAILABLE");
   }
 }
@@ -62,6 +72,32 @@ export async function getAppointmentOrThrow(id: string) {
   const appointment = await appointmentsRepository.findById(id);
   if (!appointment) throw new NotFoundError("Agendamento não encontrado.", "APPOINTMENT_NOT_FOUND");
   return appointment;
+}
+
+// Shared with `availability` (which needs the exact same "is this a legal booking
+// target" checks to know whose calendar to compute slots from) so the two modules can't
+// silently drift — `availability` importing this makes `appointments` the one-directional
+// dependency owner, avoiding a cycle.
+export async function validateBookingContext(businessId: string, serviceId: string, professionalId: string) {
+  await getBusinessOrThrow(businessId);
+
+  const service = await getServiceOrThrow(serviceId);
+  if (service.businessId !== businessId) {
+    throw new ValidationError("O serviço não pertence a este negócio.", "SERVICE_BUSINESS_MISMATCH");
+  }
+  if (!service.active) {
+    throw new ValidationError("Este serviço não está disponível.", "SERVICE_INACTIVE");
+  }
+
+  const professional = await getProfessionalOrThrow(professionalId);
+  if (professional.businessId !== businessId) {
+    throw new ValidationError("O profissional não pertence a este negócio.", "PROFESSIONAL_BUSINESS_MISMATCH");
+  }
+  if (!professional.active) {
+    throw new ValidationError("Este profissional não está disponível.", "PROFESSIONAL_INACTIVE");
+  }
+
+  return { service, professional };
 }
 
 async function assertCanManage(appointment: { businessId: string; clientId: string }, requesterId: string, requesterRole: RequesterRole) {
@@ -76,30 +112,14 @@ async function assertCanManage(appointment: { businessId: string; clientId: stri
 
 export const appointmentsService = {
   async create(clientId: string, input: CreateAppointmentInput): Promise<AppointmentDTO> {
-    await getBusinessOrThrow(input.businessId);
-
-    const service = await getServiceOrThrow(input.serviceId);
-    if (service.businessId !== input.businessId) {
-      throw new ValidationError("O serviço não pertence a este negócio.", "SERVICE_BUSINESS_MISMATCH");
-    }
-    if (!service.active) {
-      throw new ValidationError("Este serviço não está disponível.", "SERVICE_INACTIVE");
-    }
-
-    const professional = await getProfessionalOrThrow(input.professionalId);
-    if (professional.businessId !== input.businessId) {
-      throw new ValidationError("O profissional não pertence a este negócio.", "PROFESSIONAL_BUSINESS_MISMATCH");
-    }
-    if (!professional.active) {
-      throw new ValidationError("Este profissional não está disponível.", "PROFESSIONAL_INACTIVE");
-    }
+    const { service } = await validateBookingContext(input.businessId, input.serviceId, input.professionalId);
 
     const scheduledAt = new Date(input.scheduledAt);
     if (scheduledAt.getTime() <= Date.now()) {
       throw new ValidationError("A data do agendamento tem de ser no futuro.", "APPOINTMENT_IN_PAST");
     }
 
-    await assertNoOverlap(input.professionalId, scheduledAt, service.duration);
+    await assertSlotAvailable(input.businessId, input.professionalId, scheduledAt, service.duration);
 
     const appointment = await appointmentsRepository.create({
       businessId: input.businessId,
@@ -187,7 +207,7 @@ export const appointmentsService = {
       throw new ValidationError("A data do agendamento tem de ser no futuro.", "APPOINTMENT_IN_PAST");
     }
 
-    await assertNoOverlap(appointment.professionalId, scheduledAt, appointment.durationMinutes, id);
+    await assertSlotAvailable(appointment.businessId, appointment.professionalId, scheduledAt, appointment.durationMinutes, id);
 
     const updated = await appointmentsRepository.update(id, { scheduledAt });
     return toAppointmentDTO(updated);

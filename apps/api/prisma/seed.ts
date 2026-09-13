@@ -68,6 +68,15 @@ async function main() {
     },
   });
 
+  // Monday-Friday 09:00-13:00 + 14:00-19:00, Saturday 09:00-13:00, closed Sunday.
+  await prisma.businessHours.deleteMany({ where: { businessId: business.id } });
+  await prisma.businessHours.createMany({
+    data: [1, 2, 3, 4, 5].flatMap((dayOfWeek) => [
+      { businessId: business.id, dayOfWeek, startMinute: 540, endMinute: 780 },
+      { businessId: business.id, dayOfWeek, startMinute: 840, endMinute: 1140 },
+    ]).concat([{ businessId: business.id, dayOfWeek: 6, startMinute: 540, endMinute: 780 }]),
+  });
+
   console.log("Seed concluído:", { owner: owner.email, employee: employee.email, business: business.name, professional: professional.id });
 }
 
