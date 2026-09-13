@@ -214,3 +214,26 @@ export interface NotificationDTO {
   read: boolean;
   createdAt: string;
 }
+
+export type PaymentStatus = "PENDING" | "PAID" | "FAILED" | "REFUNDED";
+
+export type PaymentMethod = "CASH" | "CARD" | "MULTICAIXA" | "BANK_TRANSFER" | "OTHER";
+
+export interface PaymentDTO {
+  id: string;
+  appointmentId: string;
+  userId: string;
+  businessId: string;
+  amount: number;
+  currency: string;
+  method: PaymentMethod;
+  status: PaymentStatus;
+  paidAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreatePaymentRequest {
+  appointmentId: string;
+  method: PaymentMethod;
+}

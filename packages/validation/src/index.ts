@@ -38,6 +38,13 @@ export const createReviewSchema = z.object({
   comment: z.string().max(2000).optional(),
 });
 
+export const paymentMethodSchema = z.enum(["CASH", "CARD", "MULTICAIXA", "BANK_TRANSFER", "OTHER"]);
+
+export const createPaymentSchema = z.object({
+  appointmentId: z.string().uuid(),
+  method: paymentMethodSchema,
+});
+
 export type LoginInput = z.infer<typeof loginSchema>;
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type RefreshInput = z.infer<typeof refreshSchema>;
@@ -45,3 +52,4 @@ export type CreateAppointmentInput = z.infer<typeof createAppointmentSchema>;
 export type RescheduleAppointmentInput = z.infer<typeof rescheduleAppointmentSchema>;
 export type CreateFavoriteInput = z.infer<typeof createFavoriteSchema>;
 export type CreateReviewInput = z.infer<typeof createReviewSchema>;
+export type CreatePaymentInput = z.infer<typeof createPaymentSchema>;

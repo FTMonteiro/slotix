@@ -1,9 +1,13 @@
 import { EventEmitter } from "node:events";
-import type { AppointmentDTO } from "@slotix/types";
+import type { AppointmentDTO, PaymentDTO } from "@slotix/types";
 
 export interface DomainEvents {
   AppointmentCreated: AppointmentDTO;
   AppointmentCancelled: AppointmentDTO;
+  PaymentCreated: PaymentDTO;
+  PaymentPaid: PaymentDTO;
+  PaymentFailed: PaymentDTO;
+  PaymentRefunded: PaymentDTO;
 }
 
 class DomainEventBus extends EventEmitter {

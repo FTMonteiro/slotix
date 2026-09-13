@@ -7,7 +7,7 @@ import { professionalsRoutes, professionalsService } from "../modules/profession
 import { servicesRoutes, servicesService } from "../modules/services";
 import { appointmentsRoutes } from "../modules/appointments";
 import { availabilityRoutes } from "../modules/availability";
-import { paymentsRoutes } from "../modules/payments";
+import { paymentsRoutes, paymentsService } from "../modules/payments";
 import { notificationsRoutes } from "../modules/notifications";
 import { favoritesRoutes } from "../modules/favorites";
 import { reviewsRoutes, reviewsService } from "../modules/reviews";
@@ -63,3 +63,10 @@ routes.post(
     sendSuccess(res, review, 201);
   },
 );
+
+// Same reasoning: `payments` already depends on `appointments`, so this nested
+// convenience route is composed here instead of `appointments` depending back on it.
+routes.get("/appointments/:id/payment", authenticate, async (req: Request<{ id: string }>, res: Response) => {
+  const payment = await paymentsService.getByAppointment(req.params.id, req.user!.id, req.user!.role);
+  sendSuccess(res, payment);
+});

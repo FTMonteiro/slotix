@@ -21,6 +21,23 @@ enum AppointmentStatus {
   NO_SHOW
 }
 
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+// Domain-only for now (see Payment model doc comment): no gateway is wired up yet, so
+// these just describe how the money moved, recorded after the fact.
+enum PaymentMethod {
+  CASH
+  CARD
+  MULTICAIXA
+  BANK_TRANSFER
+  OTHER
+}
+
 model User {
   id           String   @id @default(uuid())
   email        String   @unique
@@ -40,6 +57,7 @@ model User {
   favorites          Favorite[]
   reviews            Review[]
   notifications      Notification[]
+  payments           Payment[]
 
   @@map("users")
 }
@@ -78,6 +96,7 @@ model Business {
   favorites     Favorite[]
   reviews       Review[]
   hours         BusinessHours[]
+  payments      Payment[]
 
   @@index([ownerId])
   @@map("businesses")
@@ -172,7 +191,8 @@ model Appointment {
   createdAt      DateTime          @default(now())
   updatedAt      DateTime          @updatedAt
 
-  review Review?
+  review  Review?
+  payment Payment?
 
   @@index([businessId])
   @@index([clientId])
@@ -208,6 +228,31 @@ model Review {
 
   @@index([businessId])
   @@map("reviews")
+}
+
+// One payment per appointment (appointmentId is unique): a PENDING payment moves through
+// PAID/FAILED/REFUNDED as status transitions rather than spawning new rows, so the
+// original record — and its history — is never lost. amount/currency/userId/businessId
+// are always derived server-side from the appointment; never accept them from a client.
+model Payment {
+  id            String        @id @default(uuid())
+  appointmentId String        @unique
+  appointment   Appointment   @relation(fields: [appointmentId], references: [id])
+  userId        String
+  user          User          @relation(fields: [userId], references: [id])
+  businessId    String
+  business      Business      @relation(fields: [businessId], references: [id])
+  amount        Decimal       @db.Decimal(10, 2)
+  currency      String        @default("AOA")
+  method        PaymentMethod
+  status        PaymentStatus @default(PENDING)
+  paidAt        DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@index([userId])
+  @@index([businessId])
+  @@map("payments")
 }
 
 model Notification {

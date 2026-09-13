@@ -1,3 +1,2 @@
-import { notImplementedRouter } from "../../shared/utils/notImplementedRouter";
-
-export const paymentsRoutes = notImplementedRouter("payments");
+export { paymentsRoutes } from "./payments.routes";
+export { paymentsService } from "./payments.service";

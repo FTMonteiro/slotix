@@ -28,10 +28,9 @@ SLOTIX/
   usado por Web e Mobile via header `Authorization: Bearer`.
 - Cada módulo completo segue o padrão `*.controller.ts` → `*.service.ts` →
   `*.repository.ts`, com validação Zod em `*.schema.ts`.
-- Módulos ainda não implementados (`payments`, `gallery`) existem como pastas
-  reservadas com um router placeholder (`501 Not Implemented`) até serem
-  construídos — dependem de decisões externas (gateway de pagamento, storage
-  de imagens) ainda não tomadas.
+- Módulos ainda não implementados (`gallery`) existem como pastas reservadas
+  com um router placeholder (`501 Not Implemented`) até serem construídos —
+  dependem de uma decisão externa (storage de imagens) ainda não tomada.
 
 ## Instalação
 
@@ -75,8 +74,9 @@ funcionamento, bloqueios), `appointments` (serviço/profissional inexistente
 ou inativo, horário indisponível — incluindo fora de horas e bloqueios —,
 permissões, transições de estado), `reviews` (só é possível avaliar um
 agendamento próprio e concluído, uma única vez), `favorites` (sem
-duplicados), `businesses` (filtros e cálculo de rating/paginação) e `users`
-(soft delete).
+duplicados), `businesses` (filtros e cálculo de rating/paginação), `users`
+(soft delete) e `payments` (valor sempre vindo da appointment nunca do
+cliente, duplicados, ownership, transições de estado válidas/inválidas).
 
 ## API
 
@@ -103,8 +103,12 @@ geridos pelo OWNER ou pelo próprio profissional), `/api/v1/services`,
 `/api/v1/availability?businessId=&professionalId=&serviceId=&date=YYYY-MM-DD`
 (devolve os horários livres, já a considerar horário de funcionamento,
 bloqueios e agendamentos existentes),
-`/api/v1/appointments`, `/api/v1/favorites` (`POST/DELETE /:businessId`),
-`/api/v1/reviews`, `/api/v1/notifications`.
+`/api/v1/appointments` (mais `/:id/payment` — GET do pagamento da appointment),
+`/api/v1/favorites` (`POST/DELETE /:businessId`),
+`/api/v1/reviews`, `/api/v1/notifications`,
+`/api/v1/payments` (`POST` cria; `GET` lista os próprios ou `?businessId=` para
+o OWNER; `GET /:id`; `PATCH /:id/pay`, `/:id/fail`, `/:id/refund` — restritos
+ao OWNER do negócio ou a um ADMIN).
 
 `DELETE /users/me` é soft delete (marca `deletedAt`, revoga refresh tokens) —
 appointments/reviews/negócios existentes não são apagados nem ficam órfãos.
@@ -117,6 +121,34 @@ configurado, os restantes dias sem linhas próprias passam a "fechado".
 `appointments.create`/`reschedule` usam exatamente o mesmo cálculo de
 `shared/utils/scheduling.ts` que `/availability`, por isso um horário aceite
 na criação é sempre um que `/availability` já tinha listado como livre.
+
+### Payments
+
+Domínio de pagamentos interno — **sem gateway externo integrado ainda**
+(nem Multicaixa Express, nem Stripe, nem cartões reais). Um `Payment` é
+1:1 com a `Appointment` (`appointmentId` é único): em vez de criar novas
+linhas, o mesmo registo transita entre estados, preservando o histórico.
+
+Estados e transições válidas:
+
+```text
+PENDING → PAID
+PENDING → FAILED
+PAID    → REFUNDED
+```
+
+Qualquer outra transição (`PENDING → REFUNDED`, `FAILED → PAID`,
+`REFUNDED → *`, etc.) é rejeitada com `PAYMENT_INVALID_STATUS`,
+`PAYMENT_ALREADY_PAID` ou `PAYMENT_ALREADY_REFUNDED`. `paidAt` é sempre
+gerado pelo backend ao marcar como pago e nunca é apagado num reembolso.
+
+`amount`, `currency`, `userId` e `businessId` vêm sempre da `Appointment`
+associada — nunca do corpo do pedido, mesmo que o cliente os envie. A
+moeda por omissão é `AOA` (`shared/constants`), não fixa na lógica de
+negócio. Só o `OWNER` do negócio (ou um `ADMIN`) pode marcar como
+pago/falhado/reembolsado; o cliente só pode criar e consultar os seus
+próprios pagamentos. `PaymentPaid`/`PaymentRefunded` disparam notificações
+via o mesmo event bus interno usado pelos `appointments`.
 
 ## Deployment
 

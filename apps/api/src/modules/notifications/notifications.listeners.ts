@@ -19,4 +19,12 @@ export function registerNotificationListeners(): void {
       "O seu agendamento foi cancelado.",
     );
   });
+
+  domainEvents.onEvent("PaymentPaid", (payment) => {
+    void notificationsService.notify(payment.userId, "PAYMENT_PAID", "Pagamento confirmado", "O seu pagamento foi confirmado.");
+  });
+
+  domainEvents.onEvent("PaymentRefunded", (payment) => {
+    void notificationsService.notify(payment.userId, "PAYMENT_REFUNDED", "Pagamento reembolsado", "O seu pagamento foi reembolsado.");
+  });
 }
