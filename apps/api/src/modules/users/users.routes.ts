@@ -10,3 +10,4 @@ usersRoutes.use(authenticate);
 usersRoutes.get("/me", usersController.me);
 usersRoutes.patch("/me", validate(updateProfileSchema), usersController.updateMe);
 usersRoutes.post("/me/password", validate(changePasswordSchema), usersController.changePassword);
+usersRoutes.delete("/me", usersController.deleteMe);

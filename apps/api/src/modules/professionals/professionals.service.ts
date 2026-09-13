@@ -10,17 +10,27 @@ function toProfessionalDTO(professional: {
   businessId: string;
   userId: string;
   bio: string | null;
+  specialty: string | null;
+  imageUrl: string | null;
   active: boolean;
   createdAt: Date;
   updatedAt: Date;
   user: { name: string };
+  appointments: { review: { rating: number } | null }[];
 }): ProfessionalDTO {
+  const ratings = professional.appointments.map((a) => a.review?.rating).filter((rating): rating is number => rating !== undefined && rating !== null);
+  const ratingAvg = ratings.length > 0 ? Math.round((ratings.reduce((sum, r) => sum + r, 0) / ratings.length) * 10) / 10 : null;
+
   return {
     id: professional.id,
     businessId: professional.businessId,
     userId: professional.userId,
     name: professional.user.name,
     bio: professional.bio,
+    specialty: professional.specialty,
+    imageUrl: professional.imageUrl,
+    ratingAvg,
+    ratingCount: ratings.length,
     active: professional.active,
     createdAt: professional.createdAt.toISOString(),
     updatedAt: professional.updatedAt.toISOString(),

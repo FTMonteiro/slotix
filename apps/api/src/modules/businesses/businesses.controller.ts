@@ -1,7 +1,7 @@
 import type { Request, Response } from "express";
-import { sendSuccess } from "../../shared/utils/apiResponse";
+import { sendListSuccess, sendSuccess } from "../../shared/utils/apiResponse";
 import { businessesService } from "./businesses.service";
-import type { CreateBusinessInput, UpdateBusinessInput } from "./businesses.schema";
+import type { CreateBusinessInput, ListBusinessesQuery, UpdateBusinessInput } from "./businesses.schema";
 
 export const businessesController = {
   async create(req: Request, res: Response) {
@@ -9,9 +9,10 @@ export const businessesController = {
     sendSuccess(res, business, 201);
   },
 
-  async list(_req: Request, res: Response) {
-    const businesses = await businessesService.list();
-    sendSuccess(res, businesses);
+  async list(req: Request, res: Response) {
+    const query = req.validatedQuery as unknown as ListBusinessesQuery;
+    const { data, meta } = await businessesService.list(query);
+    sendListSuccess(res, data, meta);
   },
 
   async getById(req: Request<{ id: string }>, res: Response) {

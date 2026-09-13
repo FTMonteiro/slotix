@@ -11,6 +11,8 @@ function toServiceDTO(service: {
   description: string | null;
   price: { toNumber(): number };
   duration: number;
+  category: string | null;
+  imageUrl: string | null;
   active: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -22,6 +24,8 @@ function toServiceDTO(service: {
     description: service.description,
     price: service.price.toNumber(),
     duration: service.duration,
+    category: service.category,
+    imageUrl: service.imageUrl,
     active: service.active,
     createdAt: service.createdAt.toISOString(),
     updatedAt: service.updatedAt.toISOString(),

@@ -6,6 +6,8 @@ export const createServiceSchema = z.object({
   description: z.string().optional(),
   price: z.number().nonnegative(),
   duration: z.number().int().positive(),
+  category: z.string().optional(),
+  imageUrl: z.string().url().optional(),
 });
 
 export const updateServiceSchema = z.object({
@@ -13,6 +15,8 @@ export const updateServiceSchema = z.object({
   description: z.string().optional(),
   price: z.number().nonnegative().optional(),
   duration: z.number().int().positive().optional(),
+  category: z.string().optional(),
+  imageUrl: z.string().url().optional(),
   active: z.boolean().optional(),
 });
 

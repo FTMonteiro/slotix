@@ -12,12 +12,21 @@ function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
 }
 
-function toUserDTO(user: { id: string; email: string; name: string; phone: string | null; role: UserDTO["role"]; createdAt: Date }): UserDTO {
+function toUserDTO(user: {
+  id: string;
+  email: string;
+  name: string;
+  phone: string | null;
+  avatarUrl: string | null;
+  role: UserDTO["role"];
+  createdAt: Date;
+}): UserDTO {
   return {
     id: user.id,
     email: user.email,
     name: user.name,
     phone: user.phone,
+    avatarUrl: user.avatarUrl,
     role: user.role,
     createdAt: user.createdAt.toISOString(),
   };
@@ -38,7 +47,7 @@ async function issueTokens(user: { id: string; role: UserDTO["role"] }): Promise
 
 export const authService = {
   async register(input: RegisterInput): Promise<LoginResponse> {
-    const existing = await authRepository.findUserByEmail(input.email);
+    const existing = await authRepository.findAnyByEmail(input.email);
     if (existing) {
       throw new ConflictError("Este email já está registado.", "EMAIL_ALREADY_REGISTERED");
     }

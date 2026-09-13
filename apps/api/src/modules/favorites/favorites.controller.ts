@@ -1,12 +1,10 @@
 import type { Request, Response } from "express";
-import type { CreateFavoriteInput } from "@slotix/validation";
 import { sendSuccess } from "../../shared/utils/apiResponse";
 import { favoritesService } from "./favorites.service";
 
 export const favoritesController = {
-  async add(req: Request, res: Response) {
-    const { businessId } = req.body as CreateFavoriteInput;
-    const favorite = await favoritesService.add(req.user!.id, businessId);
+  async add(req: Request<{ businessId: string }>, res: Response) {
+    const favorite = await favoritesService.add(req.user!.id, req.params.businessId);
     sendSuccess(res, favorite, 201);
   },
 

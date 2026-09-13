@@ -2,6 +2,7 @@ import bcrypt from "bcryptjs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const findUserByEmail = vi.fn();
+const findAnyByEmail = vi.fn();
 const findUserById = vi.fn();
 const createUser = vi.fn();
 const createRefreshToken = vi.fn(async () => ({}));
@@ -12,6 +13,7 @@ const revokeAllUserRefreshTokens = vi.fn();
 vi.mock("../src/modules/auth/auth.repository", () => ({
   authRepository: {
     findUserByEmail: (...args: unknown[]) => findUserByEmail(...args),
+    findAnyByEmail: (...args: unknown[]) => findAnyByEmail(...args),
     findUserById: (...args: unknown[]) => findUserById(...args),
     createUser: (...args: unknown[]) => createUser(...args),
     createRefreshToken: (...args: unknown[]) => createRefreshToken(...args),
@@ -28,6 +30,7 @@ const existingUser = {
   email: "existing@slotix.dev",
   name: "Existing User",
   phone: null,
+  avatarUrl: null,
   role: "CUSTOMER" as const,
   passwordHash: await bcrypt.hash("correct-password", 4),
   createdAt: new Date(),
@@ -39,7 +42,7 @@ beforeEach(() => {
 
 describe("authService.register", () => {
   it("rejeita registo com email já existente", async () => {
-    findUserByEmail.mockResolvedValue(existingUser);
+    findAnyByEmail.mockResolvedValue(existingUser);
 
     await expect(
       authService.register({ name: "Novo", email: existingUser.email, password: "password123" }),
@@ -47,7 +50,7 @@ describe("authService.register", () => {
   });
 
   it("regista um novo utilizador e emite tokens", async () => {
-    findUserByEmail.mockResolvedValue(null);
+    findAnyByEmail.mockResolvedValue(null);
     createUser.mockResolvedValue({ ...existingUser, id: "user-2", email: "new@slotix.dev" });
 
     const result = await authService.register({ name: "Novo", email: "new@slotix.dev", password: "password123" });

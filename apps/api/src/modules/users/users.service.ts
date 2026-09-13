@@ -4,12 +4,21 @@ import { AuthenticationError, NotFoundError } from "../../shared/errors";
 import { usersRepository } from "./users.repository";
 import type { ChangePasswordInput, UpdateProfileInput } from "./users.schema";
 
-function toUserDTO(user: { id: string; email: string; name: string; phone: string | null; role: UserDTO["role"]; createdAt: Date }): UserDTO {
+function toUserDTO(user: {
+  id: string;
+  email: string;
+  name: string;
+  phone: string | null;
+  avatarUrl: string | null;
+  role: UserDTO["role"];
+  createdAt: Date;
+}): UserDTO {
   return {
     id: user.id,
     email: user.email,
     name: user.name,
     phone: user.phone,
+    avatarUrl: user.avatarUrl,
     role: user.role,
     createdAt: user.createdAt.toISOString(),
   };
@@ -36,5 +45,18 @@ export const usersService = {
 
     const passwordHash = await bcrypt.hash(input.newPassword, 10);
     await usersRepository.updatePasswordHash(userId, passwordHash);
+  },
+
+  // Soft delete: appointments/reviews keep referencing this user (and OWNER/EMPLOYEE
+  // accounts may own businesses or be linked as professionals), so a hard DELETE would
+  // either violate foreign keys or silently orphan business history. Marking the account
+  // deleted and revoking its refresh tokens preserves that history while blocking further
+  // login/refresh (see auth.repository's deletedAt filters).
+  async deleteAccount(userId: string): Promise<void> {
+    const user = await usersRepository.findById(userId);
+    if (!user) throw new NotFoundError("Utilizador não encontrado.");
+
+    await usersRepository.softDelete(userId);
+    await usersRepository.revokeAllRefreshTokens(userId);
   },
 };

@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
 import type { LoginInput, RefreshInput, RegisterInput } from "@slotix/validation";
 import { sendSuccess } from "../../shared/utils/apiResponse";
+import { usersService } from "../users";
 import { authService } from "./auth.service";
 
 export const authController = {
@@ -23,5 +24,10 @@ export const authController = {
   async logout(req: Request, res: Response) {
     await authService.logout(req.user!.id);
     sendSuccess(res, { loggedOut: true });
+  },
+
+  async me(req: Request, res: Response) {
+    const profile = await usersService.getProfile(req.user!.id);
+    sendSuccess(res, profile);
   },
 };

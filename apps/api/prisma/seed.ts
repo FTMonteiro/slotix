@@ -32,13 +32,24 @@ async function main() {
       description: "Barbearia de demonstração criada pelo seed.",
       address: "Rua Exemplo, 123, Lisboa",
       phone: "+351 900 000 000",
+      category: "barbearia",
+      imageUrl: "https://images.unsplash.com/photo-1585747860715-2ba37e788b70",
+      latitude: 38.7223,
+      longitude: -9.1393,
     },
   });
 
   const professional = await prisma.professional.upsert({
     where: { userId: employee.id },
     update: {},
-    create: { businessId: business.id, userId: employee.id, bio: "Barbeiro sénior.", active: true },
+    create: {
+      businessId: business.id,
+      userId: employee.id,
+      bio: "Barbeiro sénior.",
+      specialty: "Cortes clássicos e barba",
+      imageUrl: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e",
+      active: true,
+    },
   });
 
   await prisma.service.upsert({
@@ -51,6 +62,8 @@ async function main() {
       description: "Corte clássico com máquina e tesoura.",
       price: 15,
       duration: 30,
+      category: "corte",
+      imageUrl: "https://images.unsplash.com/photo-1560066984-138dadb4c035",
       active: true,
     },
   });

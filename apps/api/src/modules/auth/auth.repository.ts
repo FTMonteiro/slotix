@@ -3,11 +3,17 @@ import type { Role } from "@slotix/types";
 
 export const authRepository = {
   findUserByEmail(email: string) {
+    return prisma.user.findFirst({ where: { email, deletedAt: null } });
+  },
+
+  // Includes soft-deleted accounts: the `email` column stays unique regardless of
+  // deletedAt, so registration must check against this, not the login lookup above.
+  findAnyByEmail(email: string) {
     return prisma.user.findUnique({ where: { email } });
   },
 
   findUserById(id: string) {
-    return prisma.user.findUnique({ where: { id } });
+    return prisma.user.findFirst({ where: { id, deletedAt: null } });
   },
 
   createUser(data: { name: string; email: string; passwordHash: string; phone?: string; role?: Role }) {

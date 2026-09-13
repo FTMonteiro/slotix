@@ -1,13 +1,13 @@
 import { Router } from "express";
 import { authenticate } from "../../shared/middleware/authenticate";
 import { authorize } from "../../shared/middleware/authorize";
-import { validate } from "../../shared/middleware/validate";
+import { validate, validateQuery } from "../../shared/middleware/validate";
 import { businessesController } from "./businesses.controller";
-import { createBusinessSchema, updateBusinessSchema } from "./businesses.schema";
+import { createBusinessSchema, listBusinessesQuerySchema, updateBusinessSchema } from "./businesses.schema";
 
 export const businessesRoutes = Router();
 
-businessesRoutes.get("/", businessesController.list);
+businessesRoutes.get("/", validateQuery(listBusinessesQuerySchema), businessesController.list);
 businessesRoutes.get("/:id", businessesController.getById);
 
 businessesRoutes.post("/", authenticate, authorize("OWNER"), validate(createBusinessSchema), businessesController.create);

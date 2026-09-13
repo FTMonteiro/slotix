@@ -28,6 +28,8 @@ model User {
   name         String
   phone        String?
   role         Role     @default(CUSTOMER)
+  avatarUrl    String?
+  deletedAt    DateTime?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -63,6 +65,10 @@ model Business {
   description String?
   address     String?
   phone       String?
+  category    String?
+  imageUrl    String?
+  latitude    Float?
+  longitude   Float?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -83,6 +89,8 @@ model Professional {
   userId     String   @unique
   user       User     @relation(fields: [userId], references: [id])
   bio        String?
+  specialty  String?
+  imageUrl   String?
   active     Boolean  @default(true)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
@@ -101,6 +109,8 @@ model Service {
   description String?
   price       Decimal  @db.Decimal(10, 2)
   duration    Int
+  category    String?
+  imageUrl    String?
   active      Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt

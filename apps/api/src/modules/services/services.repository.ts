@@ -2,7 +2,15 @@ import { prisma } from "../../config/database";
 import type { Prisma } from "@prisma/client";
 
 export const servicesRepository = {
-  create(data: { businessId: string; name: string; description?: string; price: Prisma.Decimal | number; duration: number }) {
+  create(data: {
+    businessId: string;
+    name: string;
+    description?: string;
+    price: Prisma.Decimal | number;
+    duration: number;
+    category?: string;
+    imageUrl?: string;
+  }) {
     return prisma.service.create({ data });
   },
 
@@ -14,7 +22,18 @@ export const servicesRepository = {
     return prisma.service.findUnique({ where: { id } });
   },
 
-  update(id: string, data: { name?: string; description?: string; price?: Prisma.Decimal | number; duration?: number; active?: boolean }) {
+  update(
+    id: string,
+    data: {
+      name?: string;
+      description?: string;
+      price?: Prisma.Decimal | number;
+      duration?: number;
+      category?: string;
+      imageUrl?: string;
+      active?: boolean;
+    },
+  ) {
     return prisma.service.update({ where: { id }, data });
   },
 

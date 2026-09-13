@@ -18,4 +18,9 @@ export const usersController = {
     await usersService.changePassword(req.user!.id, req.body as ChangePasswordInput);
     sendSuccess(res, { changed: true });
   },
+
+  async deleteMe(req: Request, res: Response) {
+    await usersService.deleteAccount(req.user!.id);
+    sendSuccess(res, { deleted: true });
+  },
 };

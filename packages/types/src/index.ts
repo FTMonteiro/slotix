@@ -22,11 +22,26 @@ export interface ApiError {
 
 export type ApiResponse<T> = ApiSuccess<T> | ApiError;
 
+export interface PaginationMeta {
+  page: number;
+  limit: number;
+  total: number;
+}
+
+export interface ApiListSuccess<T> {
+  success: true;
+  data: T[];
+  meta: PaginationMeta;
+}
+
+export type ApiListResponse<T> = ApiListSuccess<T> | ApiError;
+
 export interface UserDTO {
   id: string;
   email: string;
   name: string;
   phone: string | null;
+  avatarUrl: string | null;
   role: Role;
   createdAt: string;
 }
@@ -59,8 +74,24 @@ export interface BusinessDTO {
   description: string | null;
   address: string | null;
   phone: string | null;
+  category: string | null;
+  imageUrl: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  ratingAvg: number | null;
+  ratingCount: number;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface BusinessListQuery {
+  category?: string;
+  search?: string;
+  minRating?: number;
+  minPrice?: number;
+  maxPrice?: number;
+  page?: number;
+  limit?: number;
 }
 
 export interface ServiceDTO {
@@ -70,6 +101,8 @@ export interface ServiceDTO {
   description: string | null;
   price: number;
   duration: number;
+  category: string | null;
+  imageUrl: string | null;
   active: boolean;
   createdAt: string;
   updatedAt: string;
@@ -81,6 +114,10 @@ export interface ProfessionalDTO {
   userId: string;
   name: string;
   bio: string | null;
+  specialty: string | null;
+  imageUrl: string | null;
+  ratingAvg: number | null;
+  ratingCount: number;
   active: boolean;
   createdAt: string;
   updatedAt: string;

@@ -29,7 +29,7 @@ function toReviewDTO(review: {
 }
 
 export const reviewsService = {
-  async create(clientId: string, input: CreateReviewInput): Promise<ReviewDTO> {
+  async create(clientId: string, input: CreateReviewInput, expectedBusinessId?: string): Promise<ReviewDTO> {
     const appointment = await getAppointmentOrThrow(input.appointmentId);
 
     if (appointment.clientId !== clientId) {
@@ -37,6 +37,9 @@ export const reviewsService = {
     }
     if (appointment.status !== "COMPLETED") {
       throw new ValidationError("Só é possível avaliar agendamentos concluídos.", "APPOINTMENT_NOT_COMPLETED");
+    }
+    if (expectedBusinessId && appointment.businessId !== expectedBusinessId) {
+      throw new ValidationError("Este agendamento não pertence a este negócio.", "APPOINTMENT_BUSINESS_MISMATCH");
     }
 
     const existing = await reviewsRepository.findByAppointment(input.appointmentId);
