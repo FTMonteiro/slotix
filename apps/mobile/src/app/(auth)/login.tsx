@@ -25,6 +25,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ApiRequestError } from '../../services/api-client';
 import { login } from '../../services/auth';
+import { useAuth } from '../../contexts/AuthContext';
+import { useFavorites } from '../../contexts/FavoritesContext';
 
 /* =========================================================
    CORES
@@ -58,6 +60,8 @@ const COLORS = {
 
 export default function LoginScreen() {
   const router = useRouter();
+  const { refresh: refreshAuth } = useAuth();
+  const { refresh: refreshFavorites } = useFavorites();
 
   /* =======================================================
      STATES
@@ -221,6 +225,8 @@ export default function LoginScreen() {
       ]).start();
 
       await login({ email: email.trim(), password });
+      await refreshAuth();
+      void refreshFavorites();
 
       /*
        * Vai para a tela inicial.

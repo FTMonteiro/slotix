@@ -29,6 +29,11 @@ import { LinearGradient } from 'expo-linear-gradient';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useRouter } from 'expo-router';
 
+import type { BusinessDTO, BusinessSortBy } from '@slotix/types';
+import { listBusinesses } from '../services/businesses';
+import { getCurrentCoordinates, type Coordinates } from '../services/location';
+import { useFavorites } from '../contexts/FavoritesContext';
+
 type IconName = keyof typeof Ionicons.glyphMap;
 
 type Category = {
@@ -36,38 +41,17 @@ type Category = {
   icon: IconName;
 };
 
-type Space = {
-  id: string;
-  name: string;
-  category: string;
-  province: string;
-  location: string;
-  rating: number;
-  reviews: number;
-  distance: number;
-  price: number;
-  service: string;
-  image: string;
-  premium?: boolean;
-  featured?: boolean;
-  availableToday?: boolean;
-  popular?: boolean;
-};
-
+// `category` here is free text sent as-is to ?category= (the backend has no fixed
+// category enum) — these are just convenient, common shortcuts, like any app's filter
+// chips. "Todos" is a client-only sentinel meaning "no category filter".
 type Filters = {
   category: string;
-  distance: number | null;
+  radiusKm: number | null;
   maxPrice: number | null;
   minRating: number | null;
-  availableToday: boolean;
-  premiumOnly: boolean;
 };
 
-type SortMode =
-  | 'recommended'
-  | 'rating'
-  | 'popular'
-  | 'distance';
+type SortMode = Extract<BusinessSortBy, 'recommended' | 'nearest'> | 'topRated';
 
 const COLORS = {
   background: '#F5F5F3',
@@ -83,30 +67,6 @@ const COLORS = {
   success: '#159447',
   danger: '#FF3158',
 };
-
-const PROVINCES = [
-  'Bengo',
-  'Benguela',
-  'Bié',
-  'Cabinda',
-  'Cuando',
-  'Cuanza Norte',
-  'Cuanza Sul',
-  'Cunene',
-  'Cubango',
-  'Huambo',
-  'Huíla',
-  'Icolo e Bengo',
-  'Luanda',
-  'Lunda Norte',
-  'Lunda Sul',
-  'Malanje',
-  'Moxico',
-  'Moxico Leste',
-  'Namibe',
-  'Uíge',
-  'Zaire',
-];
 
 const CATEGORIES: Category[] = [
   {
@@ -135,116 +95,6 @@ const CATEGORIES: Category[] = [
   },
 ];
 
-const SPACES: Space[] = [
-  {
-    id: '1',
-    name: 'Barbearia Executive',
-    category: 'Barbearia',
-    province: 'Luanda',
-    location: 'Alvalade',
-    rating: 4.9,
-    reviews: 184,
-    distance: 1.2,
-    price: 7500,
-    service: 'Corte + Barba',
-    image:
-      'https://images.unsplash.com/photo-1621605815971-fbc98d665033?auto=format&fit=crop&w=1200&q=85',
-    premium: true,
-    featured: true,
-    availableToday: true,
-    popular: true,
-  },
-  {
-    id: '2',
-    name: 'Lumina Nails & Spa',
-    category: 'Nails',
-    province: 'Luanda',
-    location: 'Talatona',
-    rating: 4.8,
-    reviews: 126,
-    distance: 3.4,
-    price: 10000,
-    service: 'Manicure Premium',
-    image:
-      'https://images.unsplash.com/photo-1604654894610-df63bc536371?auto=format&fit=crop&w=1200&q=85',
-    premium: true,
-    featured: true,
-    availableToday: true,
-    popular: true,
-  },
-  {
-    id: '3',
-    name: 'The Royal Spa',
-    category: 'SPA',
-    province: 'Luanda',
-    location: 'Ilha de Luanda',
-    rating: 4.9,
-    reviews: 98,
-    distance: 4.1,
-    price: 15000,
-    service: 'Royal Relax',
-    image:
-      'https://images.unsplash.com/photo-1540555700478-4be289fbecef?auto=format&fit=crop&w=1200&q=85',
-    premium: true,
-    featured: true,
-    availableToday: true,
-    popular: false,
-  },
-  {
-    id: '4',
-    name: "Gentleman's Club",
-    category: 'Barbearia',
-    province: 'Luanda',
-    location: 'Alvalade',
-    rating: 4.7,
-    reviews: 211,
-    distance: 1.8,
-    price: 5000,
-    service: 'Corte Executivo',
-    image:
-      'https://images.unsplash.com/photo-1503951914875-452162b0f3f1?auto=format&fit=crop&w=1200&q=85',
-    premium: false,
-    featured: false,
-    availableToday: true,
-    popular: true,
-  },
-  {
-    id: '5',
-    name: 'Lumina Beauty Studio',
-    category: 'Salão',
-    province: 'Luanda',
-    location: 'Miramar',
-    rating: 4.8,
-    reviews: 157,
-    distance: 2.9,
-    price: 7500,
-    service: 'Beauty Experience',
-    image:
-      'https://images.unsplash.com/photo-1560066984-138dadb4c035?auto=format&fit=crop&w=1200&q=85',
-    premium: true,
-    featured: false,
-    availableToday: true,
-    popular: true,
-  },
-  {
-    id: '6',
-    name: 'Glow Skin Studio',
-    category: 'Estética',
-    province: 'Luanda',
-    location: 'Talatona',
-    rating: 4.9,
-    reviews: 87,
-    distance: 5.2,
-    price: 10000,
-    service: 'Skin Treatment',
-    image:
-      'https://images.unsplash.com/photo-1570172619644-dfd03ed5d881?auto=format&fit=crop&w=1200&q=85',
-    premium: true,
-    featured: false,
-    availableToday: false,
-    popular: false,
-  },
-];
 
 const PRICE_OPTIONS = [
   {
@@ -287,9 +137,6 @@ const DISTANCE_OPTIONS = [
     value: null,
   },
 ];
-
-const formatPrice = (price: number) =>
-  `${price.toLocaleString('pt-AO')} Kz`;
 
 const AbsoluteFill = ({
   children,
@@ -356,7 +203,7 @@ const SpaceCard = memo(
     onFavorite,
     onPress,
   }: {
-    space: Space;
+    space: BusinessDTO;
     favorite: boolean;
     onFavorite: () => void;
     onPress: () => void;
@@ -369,12 +216,18 @@ const SpaceCard = memo(
       ]}
     >
       <View style={styles.spaceImageWrapper}>
-        <Image
-          source={{ uri: space.image }}
-          style={styles.spaceImage}
-          contentFit="cover"
-          transition={250}
-        />
+        {space.imageUrl ? (
+          <Image
+            source={{ uri: space.imageUrl }}
+            style={styles.spaceImage}
+            contentFit="cover"
+            transition={250}
+          />
+        ) : (
+          <View style={[styles.spaceImage, styles.imageFallback]}>
+            <Ionicons name="storefront-outline" size={26} color="rgba(0,0,0,0.20)" />
+          </View>
+        )}
 
         <AbsoluteFill>
           <LinearGradient
@@ -386,20 +239,6 @@ const SpaceCard = memo(
             style={styles.gradient}
           />
         </AbsoluteFill>
-
-        {space.premium ? (
-          <View style={styles.premiumBadge}>
-            <Ionicons
-              name="diamond"
-              size={11}
-              color={COLORS.white}
-            />
-
-            <Text style={styles.premiumBadgeText}>
-              PREMIUM
-            </Text>
-          </View>
-        ) : null}
 
         <Pressable
           onPress={onFavorite}
@@ -436,13 +275,15 @@ const SpaceCard = memo(
             />
 
             <Text style={styles.ratingText}>
-              {space.rating}
+              {space.ratingAvg !== null ? space.ratingAvg.toFixed(1) : 'Novo'}
             </Text>
           </View>
 
-          <Text style={styles.cardService}>
-            {space.service}
-          </Text>
+          {space.category ? (
+            <Text style={styles.cardService}>
+              {space.category}
+            </Text>
+          ) : null}
         </View>
       </View>
 
@@ -470,31 +311,33 @@ const SpaceCard = memo(
               color={COLORS.muted}
             />
 
-            <Text style={styles.metaText}>
-              {space.location}
+            <Text style={styles.metaText} numberOfLines={1}>
+              {space.address ?? '—'}
             </Text>
           </View>
 
-          <View style={styles.metaItem}>
-            <Ionicons
-              name="navigate-outline"
-              size={13}
-              color={COLORS.muted}
-            />
+          {space.distanceKm !== null ? (
+            <View style={styles.metaItem}>
+              <Ionicons
+                name="navigate-outline"
+                size={13}
+                color={COLORS.muted}
+              />
 
-            <Text style={styles.metaText}>
-              {space.distance} km
-            </Text>
-          </View>
+              <Text style={styles.metaText}>
+                {space.distanceKm.toFixed(1)} km
+              </Text>
+            </View>
+          ) : null}
         </View>
 
         <View style={styles.priceRow}>
           <Text style={styles.priceLabel}>
-            A partir de
+            Avaliações
           </Text>
 
           <Text style={styles.priceValue}>
-            {formatPrice(space.price)}
+            {space.ratingCount > 0 ? `${space.ratingCount}` : 'Sem avaliações'}
           </Text>
         </View>
       </View>
@@ -507,7 +350,7 @@ const FeaturedCard = memo(
     space,
     onPress,
   }: {
-    space: Space;
+    space: BusinessDTO;
     onPress: () => void;
   }) => (
     <Pressable
@@ -517,12 +360,18 @@ const FeaturedCard = memo(
         pressed && styles.cardPressed,
       ]}
     >
-      <Image
-        source={{ uri: space.image }}
-        style={styles.featuredImage}
-        contentFit="cover"
-        transition={300}
-      />
+      {space.imageUrl ? (
+        <Image
+          source={{ uri: space.imageUrl }}
+          style={styles.featuredImage}
+          contentFit="cover"
+          transition={300}
+        />
+      ) : (
+        <View style={[styles.featuredImage, styles.imageFallback]}>
+          <Ionicons name="storefront-outline" size={40} color="rgba(0,0,0,0.20)" />
+        </View>
+      )}
 
       <AbsoluteFill>
         <LinearGradient
@@ -556,7 +405,7 @@ const FeaturedCard = memo(
           />
 
           <Text style={styles.featuredRatingText}>
-            {space.rating}
+            {space.ratingAvg !== null ? space.ratingAvg.toFixed(1) : 'Novo'}
           </Text>
         </View>
       </View>
@@ -566,17 +415,19 @@ const FeaturedCard = memo(
           {space.name}
         </Text>
 
-        <View style={styles.featuredMeta}>
-          <Ionicons
-            name="location-outline"
-            size={13}
-            color="rgba(255,255,255,0.78)"
-          />
+        {space.address ? (
+          <View style={styles.featuredMeta}>
+            <Ionicons
+              name="location-outline"
+              size={13}
+              color="rgba(255,255,255,0.78)"
+            />
 
-          <Text style={styles.featuredLocation}>
-            {space.location}
-          </Text>
-        </View>
+            <Text style={styles.featuredLocation}>
+              {space.address}
+            </Text>
+          </View>
+        ) : null}
 
         <View style={styles.featuredAction}>
           <Text style={styles.featuredActionText}>
@@ -599,24 +450,14 @@ const FeaturedCard = memo(
 export default function ExploreScreen() {
   const router = useRouter();
   const { width } = useWindowDimensions();
-
-  const [selectedProvince, setSelectedProvince] =
-    useState('Luanda');
-
-  const [provinceVisible, setProvinceVisible] =
-    useState(false);
-
-  const [provinceSearch, setProvinceSearch] =
-    useState('');
+  const { isFavorite, toggleFavorite } = useFavorites();
 
   const [filters, setFilters] =
     useState<Filters>({
       category: 'Todos',
-      distance: null,
+      radiusKm: null,
       maxPrice: null,
       minRating: null,
-      availableToday: false,
-      premiumOnly: false,
     });
 
   const [draftFilters, setDraftFilters] =
@@ -626,9 +467,13 @@ export default function ExploreScreen() {
     useState<SortMode>('recommended');
 
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
 
-  const [favorites, setFavorites] =
-    useState<string[]>([]);
+  const [coordinates, setCoordinates] =
+    useState<Coordinates | null>(null);
+
+  const [results, setResults] = useState<BusinessDTO[]>([]);
+  const [loading, setLoading] = useState(true);
 
   const [filterVisible, setFilterVisible] =
     useState(false);
@@ -644,198 +489,69 @@ export default function ExploreScreen() {
     new Animated.Value(0),
   ).current;
 
-  const provinceY = useRef(
-    new Animated.Value(700),
-  ).current;
+  // Debounce search text so every keystroke doesn't fire a request.
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search.trim()), 400);
+    return () => clearTimeout(timer);
+  }, [search]);
 
-  const provinceBackdrop = useRef(
-    new Animated.Value(0),
-  ).current;
+  // "nearest" only means something with the device's location — requested lazily, the
+  // first time it's actually needed, rather than on screen mount.
+  const ensureCoordinates = useCallback(async () => {
+    if (coordinates) return coordinates;
+    const current = await getCurrentCoordinates();
+    setCoordinates(current);
+    return current;
+  }, [coordinates]);
 
-  const provinceSpaces = useMemo(
-    () =>
-      SPACES.filter(
-        (space) =>
-          space.province ===
-          selectedProvince,
-      ),
-    [selectedProvince],
-  );
+  useEffect(() => {
+    let cancelled = false;
 
-  const filteredProvinces = useMemo(() => {
-    const value = provinceSearch
-      .trim()
-      .toLowerCase();
-
-    if (!value) {
-      return PROVINCES;
+    async function load() {
+      setLoading(true);
+      try {
+        const data = await listBusinesses({
+          category: filters.category !== 'Todos' ? filters.category : undefined,
+          search: debouncedSearch || undefined,
+          maxPrice: filters.maxPrice ?? undefined,
+          minRating: filters.minRating ?? undefined,
+          latitude: coordinates?.latitude,
+          longitude: coordinates?.longitude,
+          radiusKm: filters.radiusKm ?? undefined,
+          sortBy: sortMode,
+          limit: 30,
+        });
+        if (!cancelled) setResults(data.data);
+      } catch {
+        if (!cancelled) setResults([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     }
 
-    return PROVINCES.filter((province) =>
-      province
-        .toLowerCase()
-        .includes(value),
-    );
-  }, [provinceSearch]);
+    void load();
 
-  const filteredSpaces = useMemo(() => {
-    const searchValue = search
-      .trim()
-      .toLowerCase();
+    return () => {
+      cancelled = true;
+    };
+  }, [filters, debouncedSearch, sortMode, coordinates]);
 
-    let result = provinceSpaces.filter(
-      (space) => {
-        const matchesCategory =
-          filters.category === 'Todos' ||
-          space.category ===
-            filters.category;
+  const isBrowsing = debouncedSearch.length === 0 && filters.category === 'Todos' && filters.maxPrice === null && filters.minRating === null;
 
-        const matchesDistance =
-          filters.distance === null ||
-          space.distance <=
-            filters.distance;
-
-        const matchesPrice =
-          filters.maxPrice === null ||
-          space.price <=
-            filters.maxPrice;
-
-        const matchesRating =
-          filters.minRating === null ||
-          space.rating >=
-            filters.minRating;
-
-        const matchesToday =
-          !filters.availableToday ||
-          space.availableToday;
-
-        const matchesPremium =
-          !filters.premiumOnly ||
-          space.premium;
-
-        const matchesSearch =
-          !searchValue ||
-          space.name
-            .toLowerCase()
-            .includes(searchValue) ||
-          space.category
-            .toLowerCase()
-            .includes(searchValue) ||
-          space.location
-            .toLowerCase()
-            .includes(searchValue) ||
-          space.service
-            .toLowerCase()
-            .includes(searchValue);
-
-        return (
-          matchesCategory &&
-          matchesDistance &&
-          matchesPrice &&
-          matchesRating &&
-          matchesToday &&
-          matchesPremium &&
-          matchesSearch
-        );
-      },
-    );
-
-    result = [...result];
-
-    if (sortMode === 'rating') {
-      result.sort(
-        (a, b) =>
-          b.rating - a.rating,
-      );
-    }
-
-    if (sortMode === 'popular') {
-      result.sort(
-        (a, b) =>
-          Number(b.popular) -
-          Number(a.popular),
-      );
-    }
-
-    if (sortMode === 'distance') {
-      result.sort(
-        (a, b) =>
-          a.distance -
-          b.distance,
-      );
-    }
-
-    if (sortMode === 'recommended') {
-      result.sort((a, b) => {
-        const premiumDifference =
-          Number(b.premium) -
-          Number(a.premium);
-
-        if (premiumDifference !== 0) {
-          return premiumDifference;
-        }
-
-        const ratingDifference =
-          b.rating - a.rating;
-
-        if (ratingDifference !== 0) {
-          return ratingDifference;
-        }
-
-        return b.reviews - a.reviews;
-      });
-    }
-
-    return result;
-  }, [
-    provinceSpaces,
-    filters,
-    search,
-    sortMode,
-  ]);
-
-  const featuredSpaces = useMemo(
-    () =>
-      provinceSpaces.filter(
-        (space) => space.featured,
-      ),
-    [provinceSpaces],
-  );
-
-  const availableSpaces = useMemo(
-    () =>
-      provinceSpaces.filter(
-        (space) => space.availableToday,
-      ),
-    [provinceSpaces],
-  );
-
+  // Reuses the one fetch above (already carrying distanceKm when coordinates are known)
+  // instead of a second request — no separate "nearby" endpoint call needed.
   const nearbySpaces = useMemo(
     () =>
-      [...provinceSpaces]
-        .sort(
-          (a, b) =>
-            a.distance -
-            b.distance,
-        )
-        .slice(0, 6),
-    [provinceSpaces],
+      coordinates
+        ? [...results]
+            .filter((space) => space.distanceKm !== null)
+            .sort((a, b) => a.distanceKm! - b.distanceKm!)
+            .slice(0, 6)
+        : [],
+    [results, coordinates],
   );
 
-  const premiumSpaces = useMemo(
-    () =>
-      provinceSpaces
-        .filter(
-          (space) => space.premium,
-        )
-        .slice(0, 5),
-    [provinceSpaces],
-  );
-
-  const heroSpaces =
-    featuredSpaces.length > 0
-      ? featuredSpaces
-      : provinceSpaces;
+  const heroSpaces = isBrowsing ? results : [];
 
   const hero =
     heroSpaces.length > 0
@@ -899,73 +615,6 @@ export default function ExploreScreen() {
     });
   }, [filterY, filterBackdrop]);
 
-  const openProvinceSelector =
-    useCallback(() => {
-      setProvinceSearch('');
-      setProvinceVisible(true);
-
-      provinceY.setValue(700);
-      provinceBackdrop.setValue(0);
-
-      Animated.parallel([
-        Animated.timing(provinceY, {
-          toValue: 0,
-          duration: 420,
-          easing: Easing.out(
-            Easing.cubic,
-          ),
-          useNativeDriver: true,
-        }),
-        Animated.timing(
-          provinceBackdrop,
-          {
-            toValue: 1,
-            duration: 300,
-            useNativeDriver: true,
-          },
-        ),
-      ]).start();
-    }, [
-      provinceY,
-      provinceBackdrop,
-    ]);
-
-  const closeProvinceSelector =
-    useCallback(() => {
-      Animated.parallel([
-        Animated.timing(provinceY, {
-          toValue: 700,
-          duration: 320,
-          easing: Easing.in(
-            Easing.cubic,
-          ),
-          useNativeDriver: true,
-        }),
-        Animated.timing(
-          provinceBackdrop,
-          {
-            toValue: 0,
-            duration: 260,
-            useNativeDriver: true,
-          },
-        ),
-      ]).start(() => {
-        setProvinceVisible(false);
-      });
-    }, [
-      provinceY,
-      provinceBackdrop,
-    ]);
-
-  const selectProvince = useCallback(
-    (province: string) => {
-      setSelectedProvince(province);
-      setSearch('');
-      closeProvinceSelector();
-    },
-    [closeProvinceSelector],
-  );
-
   const applyFilters = useCallback(() => {
     setFilters(draftFilters);
     closeFilters();
@@ -977,38 +626,21 @@ export default function ExploreScreen() {
   const clearFilters = useCallback(() => {
     const cleanFilters: Filters = {
       category: 'Todos',
-      distance: null,
+      radiusKm: null,
       maxPrice: null,
       minRating: null,
-      availableToday: false,
-      premiumOnly: false,
     };
 
     setDraftFilters(cleanFilters);
     setFilters(cleanFilters);
   }, []);
 
-  const toggleFavorite = useCallback(
-    (id: string) => {
-      setFavorites((current) =>
-        current.includes(id)
-          ? current.filter(
-              (item) => item !== id,
-            )
-          : [...current, id],
-      );
+  const navigateToSpace = useCallback(
+    (businessId: string) => {
+      router.push({ pathname: '/space', params: { businessId } } as any);
     },
-    [],
+    [router],
   );
-
-  const navigateToSpace = useCallback(() => {
-    router.push('/space');
-  }, [router]);
-
-  const navigateToSpaces =
-    useCallback(() => {
-      router.push('/especes');
-    }, [router]);
 
   const activeFilterCount = useMemo(() => {
     let count = 0;
@@ -1017,7 +649,7 @@ export default function ExploreScreen() {
       count++;
     }
 
-    if (filters.distance !== null) {
+    if (filters.radiusKm !== null) {
       count++;
     }
 
@@ -1026,14 +658,6 @@ export default function ExploreScreen() {
     }
 
     if (filters.minRating !== null) {
-      count++;
-    }
-
-    if (filters.availableToday) {
-      count++;
-    }
-
-    if (filters.premiumOnly) {
       count++;
     }
 
@@ -1055,10 +679,6 @@ export default function ExploreScreen() {
     return () => clearInterval(interval);
   }, [heroSpaces.length]);
 
-  useEffect(() => {
-    setHeroIndex(0);
-  }, [selectedProvince]);
-
   const selectQuickCategory = useCallback(
     (category: string) => {
       setFilters((current) => ({
@@ -1067,6 +687,17 @@ export default function ExploreScreen() {
       }));
     },
     [],
+  );
+
+  const selectSortMode = useCallback(
+    async (mode: SortMode) => {
+      if (mode === 'nearest') {
+        const current = await ensureCoordinates();
+        if (!current) return; // permission denied — stay on the current mode
+      }
+      setSortMode(mode);
+    },
+    [ensureCoordinates],
   );
 
   return (
@@ -1096,7 +727,7 @@ export default function ExploreScreen() {
 
         <View style={styles.header}>
           <Pressable
-            onPress={openProvinceSelector}
+            onPress={() => void ensureCoordinates()}
             style={({ pressed }) => [
               styles.locationButton,
               pressed &&
@@ -1128,21 +759,24 @@ export default function ExploreScreen() {
                 style={styles.locationText}
                 numberOfLines={1}
               >
-                {selectedProvince}
+                {coordinates ? 'Perto de si' : 'Ativar localização'}
               </Text>
             </View>
 
-            <Ionicons
-              name="chevron-down"
-              size={15}
-              color={COLORS.muted}
-            />
+            {!coordinates && (
+              <Ionicons
+                name="chevron-forward"
+                size={15}
+                color={COLORS.muted}
+              />
+            )}
           </Pressable>
 
           <View style={styles.headerRight}>
             {/* PESQUISA — MANTIDA NO TOPO */}
 
             <Pressable
+              onPress={() => router.push('/search')}
               style={({ pressed }) => [
                 styles.headerIconButton,
                 pressed && styles.pressed,
@@ -1158,6 +792,7 @@ export default function ExploreScreen() {
             {/* NOTIFICAÇÕES */}
 
             <Pressable
+              onPress={() => router.push('/perfil/notifications')}
               style={({ pressed }) => [
                 styles.notificationButton,
                 pressed && styles.pressed,
@@ -1271,7 +906,7 @@ export default function ExploreScreen() {
           <View style={styles.heroSection}>
             <FeaturedCard
               space={hero}
-              onPress={navigateToSpace}
+              onPress={() => navigateToSpace(hero.id)}
             />
 
             {heroSpaces.length > 1 ? (
@@ -1297,104 +932,119 @@ export default function ExploreScreen() {
           </View>
         ) : null}
 
-        {/* AVAILABLE TODAY */}
+        {/* NEARBY — only meaningful once the device shares its location */}
 
-        {availableSpaces.length > 0 ? (
+        {coordinates && (
           <View style={styles.section}>
             <SectionHeader
-              title="Disponível hoje"
-              subtitle={`${availableSpaces.length} espaços em ${selectedProvince}`}
-              action="Ver todos"
-              onPress={() => {
-                setFilters((current) => ({
-                  ...current,
-                  availableToday: true,
-                }));
-
-                navigateToSpaces();
-              }}
+              title="Na sua região"
+              subtitle={
+                nearbySpaces.length > 0
+                  ? 'Espaços mais próximos de si'
+                  : undefined
+              }
             />
 
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={
-                false
-              }
-              contentContainerStyle={
-                styles.horizontalCards
-              }
-            >
-              {availableSpaces
-                .slice(0, 5)
-                .map((space) => (
-                  <View
-                    key={space.id}
-                    style={{
-                      width: Math.min(
-                        width * 0.72,
-                        300,
-                      ),
-                    }}
-                  >
+            {nearbySpaces.length > 0 ? (
+              <View
+                style={styles.verticalCards}
+              >
+                {nearbySpaces
+                  .slice(0, 4)
+                  .map((space) => (
                     <SpaceCard
+                      key={space.id}
                       space={space}
-                      favorite={favorites.includes(
-                        space.id,
-                      )}
+                      favorite={isFavorite(space.id)}
                       onFavorite={() =>
                         toggleFavorite(
                           space.id,
                         )
                       }
-                      onPress={
-                        navigateToSpace
+                      onPress={() =>
+                        navigateToSpace(space.id)
                       }
                     />
-                  </View>
-                ))}
-            </ScrollView>
+                  ))}
+              </View>
+            ) : null}
           </View>
-        ) : null}
+        )}
 
-        {/* NEARBY */}
+        {/* RESULTS — the current filtered/sorted list */}
 
         <View style={styles.section}>
           <SectionHeader
-            title="Na sua região"
-            subtitle={`Espaços selecionados em ${selectedProvince}`}
-            action="Ver todos"
-            onPress={navigateToSpaces}
+            title="Espaços"
+            subtitle={
+              loading
+                ? 'A carregar…'
+                : `${results.length} espaço${results.length === 1 ? '' : 's'} encontrado${results.length === 1 ? '' : 's'}`
+            }
           />
 
-          {nearbySpaces.length > 0 ? (
+          <View style={styles.sortRow}>
+            {(
+              [
+                { mode: 'recommended' as SortMode, label: 'Recomendado' },
+                { mode: 'topRated' as SortMode, label: 'Melhor avaliado' },
+                { mode: 'nearest' as SortMode, label: 'Mais próximo' },
+              ]
+            ).map((option) => {
+              const active = sortMode === option.mode;
+              return (
+                <Pressable
+                  key={option.mode}
+                  onPress={() => void selectSortMode(option.mode)}
+                  style={[
+                    styles.sortChip,
+                    active && styles.sortChipActive,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.sortChipText,
+                      active && styles.sortChipTextActive,
+                    ]}
+                  >
+                    {option.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          {results.length > 0 ? (
             <View
               style={styles.verticalCards}
             >
-              {nearbySpaces
-                .slice(0, 4)
-                .map((space) => (
+              {results.map(
+                (space) => (
                   <SpaceCard
                     key={space.id}
                     space={space}
-                    favorite={favorites.includes(
-                      space.id,
-                    )}
+                    favorite={isFavorite(space.id)}
                     onFavorite={() =>
                       toggleFavorite(
                         space.id,
                       )
                     }
-                    onPress={
-                      navigateToSpace
+                    onPress={() =>
+                      navigateToSpace(space.id)
                     }
                   />
-                ))}
+                ),
+              )}
             </View>
-          ) : (
-            <View style={styles.emptyState}>
-              <View style={styles.emptyIcon}>
+          ) : !loading ? (
+            <View
+              style={styles.emptyState}
+            >
+              <View
+                style={styles.emptyIcon}
+              >
                 <Ionicons
-                  name="location-outline"
+                  name="search-outline"
                   size={23}
                   color={COLORS.black}
                 />
@@ -1403,8 +1053,7 @@ export default function ExploreScreen() {
               <Text
                 style={styles.emptyTitle}
               >
-                Ainda não há espaços em{' '}
-                {selectedProvince}
+                Nenhum espaço encontrado
               </Text>
 
               <Text
@@ -1412,103 +1061,16 @@ export default function ExploreScreen() {
                   styles.emptyDescription
                 }
               >
-                Estamos a expandir o SLOTIX
-                para esta região. Escolha
-                outra província para descobrir
-                espaços disponíveis.
+                Tente remover alguns filtros
+                ou procurar por outro serviço.
               </Text>
 
-              <Pressable
-                onPress={
-                  openProvinceSelector
-                }
-                style={
-                  styles.emptyButton
-                }
-              >
-                <Text
-                  style={
-                    styles.emptyButtonText
-                  }
-                >
-                  Escolher outra província
-                </Text>
-
-                <Ionicons
-                  name="arrow-forward"
-                  size={15}
-                  color={COLORS.white}
-                />
-              </Pressable>
-            </View>
-          )}
-        </View>
-
-        {/* RESULTS */}
-
-        {search.trim().length > 0 ||
-        activeFilterCount > 0 ? (
-          <View style={styles.section}>
-            <SectionHeader
-              title="Resultados"
-              subtitle={`${filteredSpaces.length} espaços encontrados`}
-            />
-
-            {filteredSpaces.length > 0 ? (
-              <View
-                style={styles.verticalCards}
-              >
-                {filteredSpaces.map(
-                  (space) => (
-                    <SpaceCard
-                      key={space.id}
-                      space={space}
-                      favorite={favorites.includes(
-                        space.id,
-                      )}
-                      onFavorite={() =>
-                        toggleFavorite(
-                          space.id,
-                        )
-                      }
-                      onPress={
-                        navigateToSpace
-                      }
-                    />
-                  ),
-                )}
-              </View>
-            ) : (
-              <View
-                style={styles.emptyState}
-              >
-                <View
-                  style={styles.emptyIcon}
-                >
-                  <Ionicons
-                    name="search-outline"
-                    size={23}
-                    color={COLORS.black}
-                  />
-                </View>
-
-                <Text
-                  style={styles.emptyTitle}
-                >
-                  Nenhum espaço encontrado
-                </Text>
-
-                <Text
-                  style={
-                    styles.emptyDescription
-                  }
-                >
-                  Tente remover alguns filtros
-                  ou procurar por outro serviço.
-                </Text>
-
+              {activeFilterCount > 0 || debouncedSearch.length > 0 ? (
                 <Pressable
-                  onPress={clearFilters}
+                  onPress={() => {
+                    clearFilters();
+                    setSearch('');
+                  }}
                   style={
                     styles.emptyButton
                   }
@@ -1521,333 +1083,11 @@ export default function ExploreScreen() {
                     Limpar filtros
                   </Text>
                 </Pressable>
-              </View>
-            )}
-          </View>
-        ) : null}
-
-        {/* PREMIUM */}
-
-        {premiumSpaces.length > 0 ? (
-          <View style={styles.section}>
-            <SectionHeader
-              title="Experiências premium"
-              subtitle="Espaços selecionados para si"
-              action="Ver todos"
-              onPress={navigateToSpaces}
-            />
-
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={
-                false
-              }
-              contentContainerStyle={
-                styles.horizontalCards
-              }
-            >
-              {premiumSpaces.map((space) => (
-                <View
-                  key={space.id}
-                  style={{
-                    width: Math.min(
-                      width * 0.72,
-                      300,
-                    ),
-                  }}
-                >
-                  <SpaceCard
-                    space={space}
-                    favorite={favorites.includes(
-                      space.id,
-                    )}
-                    onFavorite={() =>
-                      toggleFavorite(
-                        space.id,
-                      )
-                    }
-                    onPress={
-                      navigateToSpace
-                    }
-                  />
-                </View>
-              ))}
-            </ScrollView>
-          </View>
-        ) : null}
-      </ScrollView>
-
-      {/* PROVINCE SELECTOR */}
-
-      <Modal
-        visible={provinceVisible}
-        transparent
-        animationType="none"
-        onRequestClose={
-          closeProvinceSelector
-        }
-      >
-        <View style={styles.modalContainer}>
-          <Animated.View
-            style={[
-              styles.modalBackdrop,
-              {
-                opacity:
-                  provinceBackdrop,
-              },
-            ]}
-          >
-            <Pressable
-              style={
-                styles.backdropPressable
-              }
-              onPress={
-                closeProvinceSelector
-              }
-            />
-          </Animated.View>
-
-          <Animated.View
-            style={[
-              styles.provinceSheet,
-              {
-                transform: [
-                  {
-                    translateY: provinceY,
-                  },
-                ],
-              },
-            ]}
-          >
-            <View style={styles.sheetHandle} />
-
-            <View
-              style={styles.provinceHeader}
-            >
-              <View>
-                <Text
-                  style={styles.sheetEyebrow}
-                >
-                  LOCALIZAÇÃO
-                </Text>
-
-                <Text
-                  style={
-                    styles.provinceSheetTitle
-                  }
-                >
-                  Escolha a sua província
-                </Text>
-
-                <Text
-                  style={
-                    styles.provinceSheetSubtitle
-                  }
-                >
-                  Descubra espaços disponíveis
-                  na região selecionada.
-                </Text>
-              </View>
-
-              <Pressable
-                onPress={
-                  closeProvinceSelector
-                }
-                style={styles.sheetClose}
-              >
-                <Ionicons
-                  name="close"
-                  size={19}
-                  color={COLORS.black}
-                />
-              </Pressable>
-            </View>
-
-            <View
-              style={
-                styles.provinceSearchContainer
-              }
-            >
-              <Ionicons
-                name="search-outline"
-                size={18}
-                color={COLORS.muted}
-              />
-
-              <TextInput
-                value={provinceSearch}
-                onChangeText={
-                  setProvinceSearch
-                }
-                placeholder="Pesquisar província"
-                placeholderTextColor={
-                  COLORS.lightMuted
-                }
-                style={
-                  styles.provinceSearchInput
-                }
-                returnKeyType="search"
-              />
-
-              {provinceSearch.length >
-              0 ? (
-                <Pressable
-                  onPress={() =>
-                    setProvinceSearch(
-                      '',
-                    )
-                  }
-                  hitSlop={10}
-                >
-                  <Ionicons
-                    name="close-circle"
-                    size={18}
-                    color={
-                      COLORS.lightMuted
-                    }
-                  />
-                </Pressable>
               ) : null}
             </View>
-
-            <ScrollView
-              showsVerticalScrollIndicator={
-                false
-              }
-              keyboardShouldPersistTaps="handled"
-              contentContainerStyle={
-                styles.provinceList
-              }
-            >
-              {filteredProvinces.map(
-                (province) => {
-                  const active =
-                    selectedProvince ===
-                    province;
-
-                  return (
-                    <Pressable
-                      key={province}
-                      onPress={() =>
-                        selectProvince(
-                          province,
-                        )
-                      }
-                      style={({ pressed }) => [
-                        styles.provinceItem,
-                        active &&
-                          styles.provinceItemActive,
-                        pressed &&
-                          styles.provinceItemPressed,
-                      ]}
-                    >
-                      <View
-                        style={[
-                          styles.provinceIcon,
-                          active &&
-                            styles.provinceIconActive,
-                        ]}
-                      >
-                        <Ionicons
-                          name="location-outline"
-                          size={17}
-                          color={
-                            active
-                              ? COLORS.white
-                              : COLORS.black
-                          }
-                        />
-                      </View>
-
-                      <View
-                        style={
-                          styles.provinceItemText
-                        }
-                      >
-                        <Text
-                          style={[
-                            styles.provinceName,
-                            active &&
-                              styles.provinceNameActive,
-                          ]}
-                        >
-                          {province}
-                        </Text>
-
-                        {active ? (
-                          <Text
-                            style={
-                              styles.provinceSelected
-                            }
-                          >
-                            Localização atual
-                          </Text>
-                        ) : null}
-                      </View>
-
-                      {active ? (
-                        <View
-                          style={
-                            styles.provinceCheck
-                          }
-                        >
-                          <Ionicons
-                            name="checkmark"
-                            size={17}
-                            color={
-                              COLORS.white
-                            }
-                          />
-                        </View>
-                      ) : (
-                        <Ionicons
-                          name="chevron-forward"
-                          size={16}
-                          color={
-                            COLORS.lightMuted
-                          }
-                        />
-                      )}
-                    </Pressable>
-                  );
-                },
-              )}
-
-              {filteredProvinces.length ===
-              0 ? (
-                <View
-                  style={
-                    styles.provinceEmpty
-                  }
-                >
-                  <Ionicons
-                    name="search-outline"
-                    size={25}
-                    color={COLORS.muted}
-                  />
-
-                  <Text
-                    style={
-                      styles.provinceEmptyTitle
-                    }
-                  >
-                    Província não encontrada
-                  </Text>
-
-                  <Text
-                    style={
-                      styles.provinceEmptyText
-                    }
-                  >
-                    Tente pesquisar por outro
-                    nome.
-                  </Text>
-                </View>
-              ) : null}
-            </ScrollView>
-          </Animated.View>
+          ) : null}
         </View>
-      </Modal>
+      </ScrollView>
 
       {/* FILTER SHEET */}
 
@@ -2009,7 +1249,7 @@ export default function ExploreScreen() {
                 {DISTANCE_OPTIONS.map(
                   (option) => {
                     const active =
-                      draftFilters.distance ===
+                      draftFilters.radiusKm ===
                       option.value;
 
                     return (
@@ -2019,7 +1259,7 @@ export default function ExploreScreen() {
                           setDraftFilters(
                             (current) => ({
                               ...current,
-                              distance:
+                              radiusKm:
                                 option.value,
                             }),
                           )
@@ -2092,145 +1332,6 @@ export default function ExploreScreen() {
                   },
                 )}
               </View>
-
-              <Text
-                style={
-                  styles.filterSectionTitle
-                }
-              >
-                Preferências
-              </Text>
-
-              <Pressable
-                onPress={() =>
-                  setDraftFilters(
-                    (current) => ({
-                      ...current,
-                      availableToday:
-                        !current.availableToday,
-                    }),
-                  )
-                }
-                style={
-                  styles.preferenceRow
-                }
-              >
-                <View
-                  style={
-                    styles.preferenceIcon
-                  }
-                >
-                  <Ionicons
-                    name="time-outline"
-                    size={18}
-                    color={COLORS.black}
-                  />
-                </View>
-
-                <View
-                  style={
-                    styles.preferenceText
-                  }
-                >
-                  <Text
-                    style={
-                      styles.preferenceTitle
-                    }
-                  >
-                    Disponível hoje
-                  </Text>
-
-                  <Text
-                    style={
-                      styles.preferenceSubtitle
-                    }
-                  >
-                    Mostrar espaços com horários
-                    disponíveis
-                  </Text>
-                </View>
-
-                <View
-                  style={[
-                    styles.switch,
-                    draftFilters.availableToday &&
-                      styles.switchActive,
-                  ]}
-                >
-                  <View
-                    style={[
-                      styles.switchKnob,
-                      draftFilters.availableToday &&
-                        styles.switchKnobActive,
-                    ]}
-                  />
-                </View>
-              </Pressable>
-
-              <Pressable
-                onPress={() =>
-                  setDraftFilters(
-                    (current) => ({
-                      ...current,
-                      premiumOnly:
-                        !current.premiumOnly,
-                    }),
-                  )
-                }
-                style={
-                  styles.preferenceRow
-                }
-              >
-                <View
-                  style={
-                    styles.preferenceIcon
-                  }
-                >
-                  <Ionicons
-                    name="diamond-outline"
-                    size={18}
-                    color={COLORS.black}
-                  />
-                </View>
-
-                <View
-                  style={
-                    styles.preferenceText
-                  }
-                >
-                  <Text
-                    style={
-                      styles.preferenceTitle
-                    }
-                  >
-                    Apenas Premium
-                  </Text>
-
-                  <Text
-                    style={
-                      styles.preferenceSubtitle
-                    }
-                  >
-                    Experiências de nível superior
-                  </Text>
-                </View>
-
-                <View
-                  style={[
-                    styles.switch,
-                    draftFilters.premiumOnly &&
-                      styles.switchActive,
-                  ]}
-                >
-                  <View
-                    style={[
-                      styles.switchKnob,
-                      draftFilters.premiumOnly &&
-                        styles.switchKnobActive,
-                    ]}
-                  />
-                </View>
-              </Pressable>
 
               <View
                 style={styles.filterActions}
@@ -2734,6 +1835,38 @@ const styles = StyleSheet.create({
     height: '100%',
   },
 
+  imageFallback: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  sortRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 14,
+  },
+
+  sortChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: '#F2F2F2',
+  },
+
+  sortChipActive: {
+    backgroundColor: COLORS.black,
+  },
+
+  sortChipText: {
+    fontSize: 12.5,
+    fontWeight: '600',
+    color: COLORS.black,
+  },
+
+  sortChipTextActive: {
+    color: COLORS.white,
+  },
+
   premiumBadge: {
     position: 'absolute',
     left: 12,
@@ -2948,50 +2081,12 @@ const styles = StyleSheet.create({
     marginBottom: 15,
   },
 
-  provinceSheet: {
-    maxHeight: '82%',
-    minHeight: '58%',
-    backgroundColor: COLORS.background,
-    borderTopLeftRadius: 32,
-    borderTopRightRadius: 32,
-    overflow: 'hidden',
-    paddingBottom:
-      Platform.OS === 'ios'
-        ? 26
-        : 16,
-  },
-
-  provinceHeader: {
-    paddingHorizontal: 20,
-    paddingBottom: 17,
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    gap: 15,
-  },
-
   sheetEyebrow: {
     fontSize: 8,
     fontWeight: '900',
     letterSpacing: 1.5,
     color: COLORS.accent,
     marginBottom: 5,
-  },
-
-  provinceSheetTitle: {
-    fontSize: 23,
-    lineHeight: 28,
-    fontWeight: '900',
-    letterSpacing: -0.5,
-    color: COLORS.text,
-  },
-
-  provinceSheetSubtitle: {
-    marginTop: 5,
-    maxWidth: 290,
-    fontSize: 11,
-    lineHeight: 17,
-    color: COLORS.muted,
   },
 
   sheetClose: {
@@ -3003,125 +2098,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 1,
     borderColor: COLORS.border,
-  },
-
-  provinceSearchContainer: {
-    marginHorizontal: 20,
-    height: 50,
-    paddingHorizontal: 14,
-    borderRadius: 17,
-    backgroundColor: COLORS.surface,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 9,
-  },
-
-  provinceSearchInput: {
-    flex: 1,
-    height: '100%',
-    paddingVertical: 0,
-    fontSize: 12,
-    fontWeight: '600',
-    color: COLORS.text,
-  },
-
-  provinceList: {
-    paddingHorizontal: 20,
-    paddingTop: 14,
-    paddingBottom: 20,
-    gap: 8,
-  },
-
-  provinceItem: {
-    minHeight: 62,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    borderRadius: 20,
-    backgroundColor: COLORS.surface,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 11,
-  },
-
-  provinceItemActive: {
-    backgroundColor: COLORS.black,
-    borderColor: COLORS.black,
-  },
-
-  provinceItemPressed: {
-    transform: [
-      {
-        scale: 0.985,
-      },
-    ],
-    opacity: 0.85,
-  },
-
-  provinceIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: 15,
-    backgroundColor: COLORS.background,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  provinceIconActive: {
-    backgroundColor:
-      'rgba(255,255,255,0.12)',
-  },
-
-  provinceItemText: {
-    flex: 1,
-  },
-
-  provinceName: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: COLORS.text,
-  },
-
-  provinceNameActive: {
-    color: COLORS.white,
-  },
-
-  provinceSelected: {
-    marginTop: 2,
-    fontSize: 9,
-    fontWeight: '600',
-    color:
-      'rgba(255,255,255,0.58)',
-  },
-
-  provinceCheck: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: COLORS.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  provinceEmpty: {
-    paddingVertical: 50,
-    alignItems: 'center',
-  },
-
-  provinceEmptyTitle: {
-    marginTop: 12,
-    fontSize: 14,
-    fontWeight: '900',
-    color: COLORS.text,
-  },
-
-  provinceEmptyText: {
-    marginTop: 5,
-    fontSize: 11,
-    color: COLORS.muted,
   },
 
   filterSheet: {

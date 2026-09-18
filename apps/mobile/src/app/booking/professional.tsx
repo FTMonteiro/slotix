@@ -1,6 +1,7 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
+  ActivityIndicator,
   Animated,
   Image,
   Pressable,
@@ -16,6 +17,9 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 
+import type { ProfessionalDTO, ServiceDTO } from '@slotix/types';
+import { getBusinessProfessionals, getBusinessServices } from '../../services/businesses';
+
 const COLORS = {
   background: '#F3F3F0',
   white: '#FFFFFF',
@@ -30,247 +34,95 @@ const COLORS = {
   border: 'rgba(0, 0, 0, 0.07)',
 };
 
-type Service = {
-  id: string;
-  name: string;
-  duration: string;
-  price: string;
-};
-
-type Professional = {
-  id: string;
-  name: string;
-  specialty: string;
-  rating: number;
-  reviews: number;
-  experience: string;
-  about: string;
-  image: string;
-  available: boolean;
-  tags: string[];
-  serviceIds: string[];
-};
-
-/* -------------------------------------------------------------------------- */
-/* SERVIÇOS                                                                    */
-/* -------------------------------------------------------------------------- */
-
-const services: Service[] = [
-  {
-    id: 'service-001',
-    name: 'Corte Premium',
-    duration: '45 min',
-    price: '12.000 Kz',
-  },
-  {
-    id: 'service-002',
-    name: 'Corte + Barba',
-    duration: '1h 15 min',
-    price: '18.000 Kz',
-  },
-  {
-    id: 'service-003',
-    name: 'Barba Premium',
-    duration: '30 min',
-    price: '8.000 Kz',
-  },
-  {
-    id: 'service-004',
-    name: 'Styling',
-    duration: '45 min',
-    price: '10.000 Kz',
-  },
-  {
-    id: 'service-005',
-    name: 'Design',
-    duration: '30 min',
-    price: '7.000 Kz',
-  },
-  {
-    id: 'service-006',
-    name: 'Corte Executivo',
-    duration: '45 min',
-    price: '15.000 Kz',
-  },
-];
-
-/* -------------------------------------------------------------------------- */
-/* PROFISSIONAIS                                                               */
-/* -------------------------------------------------------------------------- */
-
-const professionals: Professional[] = [
-  {
-    id: 'professional-001',
-    name: 'Daniel Monteiro',
-    specialty: 'Master Barber',
-    rating: 4.9,
-    reviews: 128,
-    experience: '8 anos',
-    about:
-      'Especialista em cortes personalizados, barba e visuais executivos.',
-    image:
-      'https://images.unsplash.com/photo-1583394838336-acd977736f90?auto=format&fit=crop&w=700&q=90',
-    available: true,
-    tags: ['Cortes', 'Barba', 'Executive'],
-    serviceIds: [
-      'service-001',
-      'service-002',
-      'service-003',
-      'service-005',
-      'service-006',
-    ],
-  },
-
-  {
-    id: 'professional-002',
-    name: 'Lucas Andrade',
-    specialty: 'Senior Barber',
-    rating: 4.8,
-    reviews: 96,
-    experience: '6 anos',
-    about:
-      'Focado em técnicas modernas, fade e acabamento de alta precisão.',
-    image:
-      'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=700&q=90',
-    available: true,
-    tags: ['Fade', 'Styling', 'Barba'],
-    serviceIds: [
-      'service-001',
-      'service-002',
-      'service-003',
-      'service-004',
-      'service-006',
-    ],
-  },
-
-  {
-    id: 'professional-003',
-    name: 'Miguel Costa',
-    specialty: 'Barber Specialist',
-    rating: 4.9,
-    reviews: 84,
-    experience: '5 anos',
-    about:
-      'Especialista em cortes clássicos e transformações de estilo.',
-    image:
-      'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=700&q=90',
-    available: true,
-    tags: ['Clássico', 'Fade', 'Styling'],
-    serviceIds: [
-      'service-001',
-      'service-004',
-      'service-006',
-    ],
-  },
-
-  {
-    id: 'professional-004',
-    name: 'André Martins',
-    specialty: 'Creative Barber',
-    rating: 4.7,
-    reviews: 71,
-    experience: '4 anos',
-    about:
-      'Criativo e especializado em visuais contemporâneos e design.',
-    image:
-      'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=700&q=90',
-    available: false,
-    tags: ['Creative', 'Design', 'Styling'],
-    serviceIds: [
-      'service-001',
-      'service-004',
-      'service-005',
-      'service-006',
-    ],
-  },
-];
-
-/* -------------------------------------------------------------------------- */
-/* TELA                                                                        */
-/* -------------------------------------------------------------------------- */
+const formatPrice = (value: number) => `${value.toLocaleString('pt-AO')} Kz`;
 
 export default function BookingProfessionalScreen() {
   const router = useRouter();
 
   const params = useLocalSearchParams<{
-    service?: string | string[];
+    businessId?: string | string[];
+    serviceId?: string | string[];
   }>();
 
-  const serviceId = Array.isArray(params.service)
-    ? params.service[0]
-    : params.service;
+  const businessId = Array.isArray(params.businessId)
+    ? params.businessId[0]
+    : params.businessId;
 
-  const selectedService = useMemo(() => {
-    return services.find((service) => service.id === serviceId);
-  }, [serviceId]);
+  const serviceId = Array.isArray(params.serviceId)
+    ? params.serviceId[0]
+    : params.serviceId;
 
-  const availableProfessionals = useMemo(() => {
-    if (!serviceId) {
-      return [];
-    }
+  const [professionals, setProfessionals] = useState<ProfessionalDTO[]>([]);
+  const [services, setServices] = useState<ServiceDTO[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
 
-    return professionals.filter(
-      (professional) =>
-        professional.available &&
-        professional.serviceIds.includes(serviceId),
-    );
-  }, [serviceId]);
-
-  const [selectedProfessional, setSelectedProfessional] =
+  const [selectedProfessionalId, setSelectedProfessionalId] =
     useState<string | null>(null);
 
   const continueScale = useRef(new Animated.Value(1)).current;
 
-  const canContinue = Boolean(selectedService);
-
-  const selectedProfessionalData = useMemo(() => {
-    if (!selectedProfessional) {
-      return null;
+  useEffect(() => {
+    if (!businessId || !serviceId) {
+      setLoading(false);
+      setError(true);
+      return;
     }
 
-    return professionals.find(
-      (professional) =>
-        professional.id === selectedProfessional,
-    );
-  }, [selectedProfessional]);
+    let cancelled = false;
 
-  /* ------------------------------------------------------------------------ */
-  /* VOLTAR                                                                    */
-  /* ------------------------------------------------------------------------ */
+    async function load() {
+      setLoading(true);
+      setError(false);
+
+      try {
+        const [professionalsData, servicesData] = await Promise.all([
+          getBusinessProfessionals(businessId as string),
+          getBusinessServices(businessId as string).catch(() => []),
+        ]);
+
+        if (cancelled) return;
+        setProfessionals(professionalsData);
+        setServices(servicesData);
+      } catch {
+        if (!cancelled) setError(true);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    void load();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [businessId, serviceId]);
+
+  const selectedService = useMemo(
+    () => services.find((service) => service.id === serviceId) ?? null,
+    [services, serviceId],
+  );
+
+  const selectedProfessional = useMemo(
+    () =>
+      professionals.find(
+        (professional) => professional.id === selectedProfessionalId,
+      ) ?? null,
+    [professionals, selectedProfessionalId],
+  );
+
+  const canContinue = Boolean(selectedProfessionalId);
 
   const handleBack = useCallback(() => {
     router.back();
   }, [router]);
 
-  /* ------------------------------------------------------------------------ */
-  /* ESCOLHER PROFISSIONAL                                                     */
-  /* ------------------------------------------------------------------------ */
-
-  const handleSelect = useCallback(
-    (professional: Professional) => {
-      if (!professional.available) {
-        return;
-      }
-
-      setSelectedProfessional(professional.id);
-    },
-    [],
-  );
-
-  /* ------------------------------------------------------------------------ */
-  /* QUALQUER PROFISSIONAL                                                     */
-  /* ------------------------------------------------------------------------ */
-
-  const handleSelectAny = useCallback(() => {
-    setSelectedProfessional(null);
+  const handleSelect = useCallback((professional: ProfessionalDTO) => {
+    setSelectedProfessionalId(professional.id);
   }, []);
 
-  /* ------------------------------------------------------------------------ */
-  /* CONTINUAR                                                                 */
-  /* ------------------------------------------------------------------------ */
-
   const handleContinue = useCallback(() => {
-    if (!serviceId || !selectedService) {
+    if (!businessId || !serviceId || !selectedProfessionalId) {
       return;
     }
 
@@ -289,44 +141,55 @@ export default function BookingProfessionalScreen() {
       }),
     ]).start();
 
-    const nextParams: {
-      service: string;
-      professional?: string;
-    } = {
-      service: serviceId,
-    };
-
-    if (selectedProfessional) {
-      nextParams.professional = selectedProfessional;
-    }
-
     router.push({
       pathname: '/booking/date',
-      params: nextParams,
+      params: {
+        businessId,
+        serviceId,
+        professionalId: selectedProfessionalId,
+      },
     });
-  }, [
-    continueScale,
-    router,
-    selectedProfessional,
-    selectedService,
-    serviceId,
-  ]);
+  }, [businessId, continueScale, router, selectedProfessionalId, serviceId]);
+
+  if (loading) {
+    return (
+      <View style={styles.container}>
+        <SafeAreaView edges={['top']} style={styles.safeArea}>
+          <View style={styles.centerState}>
+            <ActivityIndicator color={COLORS.black} />
+          </View>
+        </SafeAreaView>
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={styles.container}>
+        <SafeAreaView edges={['top']} style={styles.safeArea}>
+          <View style={styles.centerState}>
+            <Text style={styles.errorTitle}>
+              Não foi possível carregar os profissionais
+            </Text>
+
+            <Pressable onPress={handleBack} style={styles.errorButton}>
+              <Text style={styles.errorButtonText}>Voltar</Text>
+            </Pressable>
+          </View>
+        </SafeAreaView>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
-      <SafeAreaView
-        edges={['top']}
-        style={styles.safeArea}
-      >
+      <SafeAreaView edges={['top']} style={styles.safeArea}>
         <ScrollView
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.scrollContent}
           bounces
         >
-          {/* ---------------------------------------------------------------- */}
-          {/* HEADER                                                           */}
-          {/* ---------------------------------------------------------------- */}
-
+          {/* HEADER */}
           <View style={styles.header}>
             <Pressable
               onPress={handleBack}
@@ -340,314 +203,150 @@ export default function BookingProfessionalScreen() {
                 tint="light"
                 style={styles.headerButtonBlur}
               >
-                <Ionicons
-                  name="arrow-back"
-                  size={20}
-                  color={COLORS.black}
-                />
+                <Ionicons name="arrow-back" size={20} color={COLORS.black} />
               </BlurView>
             </Pressable>
 
             <View style={styles.headerCenter}>
-              <Text style={styles.headerEyebrow}>
-                AGENDAMENTO
-              </Text>
-
-              <Text style={styles.headerTitle}>
-                Escolha o profissional
-              </Text>
+              <Text style={styles.headerEyebrow}>AGENDAMENTO</Text>
+              <Text style={styles.headerTitle}>Escolha o profissional</Text>
             </View>
 
             <View style={styles.stepBadge}>
               <Text style={styles.stepCurrent}>2</Text>
-
-              <Text style={styles.stepDivider}>
-                /
-              </Text>
-
-              <Text style={styles.stepTotal}>
-                4
-              </Text>
+              <Text style={styles.stepDivider}>/</Text>
+              <Text style={styles.stepTotal}>4</Text>
             </View>
           </View>
 
-          {/* ---------------------------------------------------------------- */}
-          {/* PROGRESSO                                                         */}
-          {/* ---------------------------------------------------------------- */}
-
+          {/* PROGRESSO */}
           <View style={styles.progressContainer}>
             <View style={styles.progressTrack}>
               <LinearGradient
-                colors={[
-                  '#1D63FF',
-                  '#4B83FF',
-                ]}
-                start={{
-                  x: 0,
-                  y: 0,
-                }}
-                end={{
-                  x: 1,
-                  y: 0,
-                }}
+                colors={['#1D63FF', '#4B83FF']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
                 style={styles.progressActive}
               />
             </View>
 
             <View style={styles.progressLabels}>
-              <Text style={styles.progressDone}>
-                Serviço
-              </Text>
-
-              <Text style={styles.progressActiveText}>
-                Profissional
-              </Text>
-
-              <Text style={styles.progressText}>
-                Data
-              </Text>
-
-              <Text style={styles.progressText}>
-                Confirmar
-              </Text>
+              <Text style={styles.progressDone}>Serviço</Text>
+              <Text style={styles.progressActiveText}>Profissional</Text>
+              <Text style={styles.progressText}>Data</Text>
+              <Text style={styles.progressText}>Confirmar</Text>
             </View>
           </View>
 
-          {/* ---------------------------------------------------------------- */}
-          {/* SERVIÇO ESCOLHIDO                                                 */}
-          {/* ---------------------------------------------------------------- */}
+          {/* SERVIÇO ESCOLHIDO */}
+          {selectedService ? (
+            <View style={styles.serviceSummary}>
+              <View style={styles.serviceSummaryIcon}>
+                <Ionicons name="cut-outline" size={19} color={COLORS.blue} />
+              </View>
 
-          <View style={styles.serviceSummary}>
-            <View style={styles.serviceSummaryIcon}>
-              <Ionicons
-                name="cut-outline"
-                size={19}
-                color={COLORS.blue}
-              />
-            </View>
+              <View style={styles.serviceSummaryInfo}>
+                <Text style={styles.serviceSummaryLabel}>
+                  SERVIÇO ESCOLHIDO
+                </Text>
 
-            <View style={styles.serviceSummaryInfo}>
-              <Text style={styles.serviceSummaryLabel}>
-                SERVIÇO ESCOLHIDO
-              </Text>
+                <Text style={styles.serviceSummaryName} numberOfLines={1}>
+                  {selectedService.name}
+                </Text>
 
-              <Text
-                style={styles.serviceSummaryName}
-                numberOfLines={1}
-              >
-                {selectedService?.name ??
-                  'Serviço não selecionado'}
-              </Text>
+                <View style={styles.serviceMeta}>
+                  <View style={styles.metaItem}>
+                    <Ionicons
+                      name="time-outline"
+                      size={12}
+                      color={COLORS.muted}
+                    />
 
-              <View style={styles.serviceMeta}>
-                <View style={styles.metaItem}>
-                  <Ionicons
-                    name="time-outline"
-                    size={12}
-                    color={COLORS.muted}
-                  />
+                    <Text style={styles.metaText}>
+                      {selectedService.duration} min
+                    </Text>
+                  </View>
+
+                  <View style={styles.metaSeparator} />
 
                   <Text style={styles.metaText}>
-                    {selectedService?.duration ?? '—'}
+                    {formatPrice(selectedService.price)}
                   </Text>
                 </View>
+              </View>
 
-                <View style={styles.metaSeparator} />
-
-                <Text style={styles.metaText}>
-                  {selectedService?.price ?? '—'}
-                </Text>
+              <View style={styles.serviceCheck}>
+                <Ionicons
+                  name="checkmark-circle"
+                  size={20}
+                  color={COLORS.blue}
+                />
               </View>
             </View>
+          ) : null}
 
-            <View style={styles.serviceCheck}>
-              <Ionicons
-                name="checkmark-circle"
-                size={20}
-                color={
-                  selectedService
-                    ? COLORS.blue
-                    : COLORS.muted
-                }
-              />
-            </View>
-          </View>
-
-          {/* ---------------------------------------------------------------- */}
-          {/* INTRO                                                             */}
-          {/* ---------------------------------------------------------------- */}
-
+          {/* INTRO */}
           <View style={styles.intro}>
-            <Text style={styles.title}>
-              Quem prefere?
-            </Text>
+            <Text style={styles.title}>Quem prefere?</Text>
 
             <Text style={styles.subtitle}>
-              Escolha um profissional específico ou
-              deixe que o espaço encontre o melhor
-              profissional disponível para si.
+              Escolha o profissional que vai realizar o seu atendimento.
             </Text>
           </View>
 
-          {/* ---------------------------------------------------------------- */}
-          {/* RECOMENDAÇÃO                                                      */}
-          {/* ---------------------------------------------------------------- */}
-
-          <View style={styles.recommendation}>
-            <View style={styles.recommendationIcon}>
-              <Ionicons
-                name="sparkles"
-                size={17}
-                color={COLORS.gold}
-              />
-            </View>
-
-            <View style={styles.recommendationContent}>
-              <Text style={styles.recommendationTitle}>
-                Escolha personalizada
-              </Text>
-
-              <Text style={styles.recommendationText}>
-                Os profissionais abaixo foram filtrados
-                de acordo com o serviço escolhido.
-              </Text>
-            </View>
-          </View>
-
-          {/* ---------------------------------------------------------------- */}
-          {/* LIST HEADER                                                       */}
-          {/* ---------------------------------------------------------------- */}
-
+          {/* LIST HEADER */}
           <View style={styles.listHeader}>
             <View>
-              <Text style={styles.sectionTitle}>
-                Profissionais
-              </Text>
+              <Text style={styles.sectionTitle}>Profissionais</Text>
 
               <Text style={styles.sectionSubtitle}>
-                {availableProfessionals.length}{' '}
-                {availableProfessionals.length === 1
-                  ? 'disponível'
-                  : 'disponíveis'}{' '}
-                para este serviço
-              </Text>
-            </View>
-
-            <View style={styles.onlineBadge}>
-              <View style={styles.onlineDot} />
-
-              <Text style={styles.onlineText}>
-                Online
+                {professionals.length}{' '}
+                {professionals.length === 1 ? 'disponível' : 'disponíveis'}{' '}
+                neste espaço
               </Text>
             </View>
           </View>
 
-          {/* ---------------------------------------------------------------- */}
-          {/* QUALQUER PROFISSIONAL                                             */}
-          {/* ---------------------------------------------------------------- */}
+          {/* PROFISSIONAIS */}
+          <View style={styles.professionalsList}>
+            {professionals.map((professional, index) => {
+              const selected = selectedProfessionalId === professional.id;
 
-          <View style={styles.anyProfessionalWrapper}>
-            <Pressable
-              onPress={handleSelectAny}
-              style={({ pressed }) => [
-                styles.anyProfessionalCard,
-                selectedProfessional === null &&
-                  styles.anyProfessionalSelected,
-                pressed &&
-                  styles.anyProfessionalPressed,
-              ]}
-            >
-              <View style={styles.anyIcon}>
+              return (
+                <ProfessionalCard
+                  key={professional.id}
+                  professional={professional}
+                  selected={selected}
+                  index={index}
+                  onPress={() => handleSelect(professional)}
+                />
+              );
+            })}
+          </View>
+
+          {professionals.length === 0 ? (
+            <View style={styles.emptyCard}>
+              <View style={styles.emptyIcon}>
                 <Ionicons
-                  name="sparkles-outline"
-                  size={23}
+                  name="people-outline"
+                  size={21}
                   color={COLORS.blue}
                 />
               </View>
 
-              <View style={styles.anyContent}>
-                <Text style={styles.anyTitle}>
-                  Qualquer especialista disponível
+              <View style={styles.emptyContent}>
+                <Text style={styles.emptyTitle}>
+                  Nenhum profissional disponível
                 </Text>
 
-                <Text style={styles.anySubtitle}>
-                  Deixe o espaço escolher o melhor
-                  profissional para este serviço.
+                <Text style={styles.emptyText}>
+                  Este espaço ainda não tem profissionais cadastrados.
                 </Text>
               </View>
+            </View>
+          ) : null}
 
-              <View
-                style={[
-                  styles.radio,
-                  selectedProfessional === null &&
-                    styles.radioSelected,
-                ]}
-              >
-                {selectedProfessional === null && (
-                  <View style={styles.radioInner} />
-                )}
-              </View>
-            </Pressable>
-          </View>
-
-          {/* ---------------------------------------------------------------- */}
-          {/* PROFISSIONAIS                                                     */}
-          {/* ---------------------------------------------------------------- */}
-
-          <View style={styles.professionalsList}>
-            {availableProfessionals.map(
-              (professional, index) => {
-                const selected =
-                  selectedProfessional ===
-                  professional.id;
-
-                return (
-                  <ProfessionalCard
-                    key={professional.id}
-                    professional={professional}
-                    selected={selected}
-                    index={index}
-                    onPress={() =>
-                      handleSelect(professional)
-                    }
-                  />
-                );
-              },
-            )}
-          </View>
-
-          {/* ---------------------------------------------------------------- */}
-          {/* SEM PROFISSIONAIS ESPECÍFICOS                                    */}
-          {/* ---------------------------------------------------------------- */}
-
-          {availableProfessionals.length === 0 &&
-            selectedService && (
-              <View style={styles.emptyCard}>
-                <View style={styles.emptyIcon}>
-                  <Ionicons
-                    name="people-outline"
-                    size={21}
-                    color={COLORS.blue}
-                  />
-                </View>
-
-                <View style={styles.emptyContent}>
-                  <Text style={styles.emptyTitle}>
-                    Nenhum especialista específico
-                  </Text>
-
-                  <Text style={styles.emptyText}>
-                    Pode continuar com qualquer especialista
-                    disponível para realizar este serviço.
-                  </Text>
-                </View>
-              </View>
-            )}
-
-          {/* ---------------------------------------------------------------- */}
-          {/* SEGURANÇA                                                        */}
-          {/* ---------------------------------------------------------------- */}
-
+          {/* SEGURANÇA */}
           <View style={styles.trustCard}>
             <View style={styles.trustIcon}>
               <Ionicons
@@ -658,76 +357,51 @@ export default function BookingProfessionalScreen() {
             </View>
 
             <View style={styles.trustContent}>
-              <Text style={styles.trustTitle}>
-                Profissionais verificados
-              </Text>
+              <Text style={styles.trustTitle}>Profissionais verificados</Text>
 
               <Text style={styles.trustText}>
-                Todos os profissionais apresentados fazem
-                parte da equipa do espaço.
+                Todos os profissionais apresentados fazem parte da equipa do
+                espaço.
               </Text>
             </View>
           </View>
 
-          {/* Espaço extra para não ficar atrás do CTA */}
           <View style={styles.bottomSpace} />
         </ScrollView>
       </SafeAreaView>
 
-      {/* -------------------------------------------------------------------- */}
-      {/* CTA FIXO                                                             */}
-      {/* -------------------------------------------------------------------- */}
-
+      {/* CTA FIXO */}
       <View style={styles.bottomContainer}>
-        <BlurView
-          intensity={88}
-          tint="light"
-          style={styles.bottomBlur}
-        >
+        <BlurView intensity={88} tint="light" style={styles.bottomBlur}>
           <View style={styles.bottomContent}>
             <View style={styles.summary}>
               <Text style={styles.summaryLabel}>
-                {selectedProfessionalData
-                  ? 'Profissional escolhido'
-                  : 'Profissional'}
+                {selectedProfessional ? 'Profissional escolhido' : 'Profissional'}
               </Text>
 
-              <Text
-                style={styles.summaryValue}
-                numberOfLines={1}
-              >
-                {selectedProfessionalData
-                  ? selectedProfessionalData.name
-                  : 'Qualquer disponível'}
+              <Text style={styles.summaryValue} numberOfLines={1}>
+                {selectedProfessional
+                  ? selectedProfessional.name
+                  : 'Selecione um profissional'}
               </Text>
             </View>
 
             <Animated.View
-              style={{
-                transform: [
-                  {
-                    scale: continueScale,
-                  },
-                ],
-              }}
+              style={{ transform: [{ scale: continueScale }] }}
             >
               <Pressable
                 onPress={handleContinue}
                 disabled={!canContinue}
                 style={({ pressed }) => [
                   styles.continueButton,
-                  !canContinue &&
-                    styles.continueButtonDisabled,
-                  pressed &&
-                    canContinue &&
-                    styles.continueButtonPressed,
+                  !canContinue && styles.continueButtonDisabled,
+                  pressed && canContinue && styles.continueButtonPressed,
                 ]}
               >
                 <Text
                   style={[
                     styles.continueText,
-                    !canContinue &&
-                      styles.continueTextDisabled,
+                    !canContinue && styles.continueTextDisabled,
                   ]}
                 >
                   Continuar
@@ -736,11 +410,7 @@ export default function BookingProfessionalScreen() {
                 <Ionicons
                   name="arrow-forward"
                   size={18}
-                  color={
-                    canContinue
-                      ? '#FFFFFF'
-                      : '#A0A0A0'
-                  }
+                  color={canContinue ? '#FFFFFF' : '#A0A0A0'}
                 />
               </Pressable>
             </Animated.View>
@@ -751,30 +421,20 @@ export default function BookingProfessionalScreen() {
   );
 }
 
-/* ========================================================================== */
-/* CARD PROFISSIONAL                                                          */
-/* ========================================================================== */
-
 function ProfessionalCard({
   professional,
   selected,
   index,
   onPress,
 }: {
-  professional: Professional;
+  professional: ProfessionalDTO;
   selected: boolean;
   index: number;
   onPress: () => void;
 }) {
-  const scale = useRef(
-    new Animated.Value(1),
-  ).current;
+  const scale = useRef(new Animated.Value(1)).current;
 
   const handlePressIn = () => {
-    if (!professional.available) {
-      return;
-    }
-
     Animated.spring(scale, {
       toValue: 0.985,
       damping: 18,
@@ -794,116 +454,51 @@ function ProfessionalCard({
 
   return (
     <Animated.View
-      style={[
-        styles.professionalWrapper,
-        {
-          transform: [
-            {
-              scale,
-            },
-          ],
-        },
-      ]}
+      style={[styles.professionalWrapper, { transform: [{ scale }] }]}
     >
       <Pressable
         onPress={onPress}
         onPressIn={handlePressIn}
         onPressOut={handlePressOut}
-        disabled={!professional.available}
         style={({ pressed }) => [
           styles.professionalCard,
-          selected &&
-            styles.professionalCardSelected,
-          !professional.available &&
-            styles.professionalCardUnavailable,
-          pressed &&
-            professional.available &&
-            styles.professionalPressed,
+          selected && styles.professionalCardSelected,
+          pressed && styles.professionalPressed,
         ]}
       >
-        {/* IMAGEM */}
-
         <View style={styles.imageContainer}>
-          <Image
-            source={{
-              uri: professional.image,
-            }}
-            style={[
-              styles.professionalImage,
-              !professional.available &&
-                styles.imageUnavailable,
-            ]}
-          />
-
-          <LinearGradient
-            pointerEvents="none"
-            colors={[
-              'transparent',
-              'rgba(0,0,0,0.60)',
-            ]}
-            style={styles.imageGradient}
-          />
-
-          {/* RATING */}
-
-          <View style={styles.ratingBadge}>
-            <Ionicons
-              name="star"
-              size={11}
-              color={COLORS.gold}
+          {professional.imageUrl ? (
+            <Image
+              source={{ uri: professional.imageUrl }}
+              style={styles.professionalImage}
             />
-
-            <Text style={styles.ratingText}>
-              {professional.rating.toFixed(1)}
-            </Text>
-          </View>
-
-          {/* ESTADO */}
-
-          <View
-            style={[
-              styles.statusBadge,
-              professional.available
-                ? styles.statusAvailable
-                : styles.statusUnavailable,
-            ]}
-          >
-            <View
-              style={[
-                styles.statusDot,
-                professional.available
-                  ? styles.statusDotAvailable
-                  : styles.statusDotUnavailable,
-              ]}
-            />
-
-            <Text
-              style={[
-                styles.statusText,
-                professional.available
-                  ? styles.statusTextAvailable
-                  : styles.statusTextUnavailable,
-              ]}
-            >
-              {professional.available
-                ? 'Disponível'
-                : 'Indisponível'}
-            </Text>
-          </View>
-
-          {/* SELECIONADO */}
-
-          {selected && (
-            <View style={styles.selectedBadge}>
-              <Ionicons
-                name="checkmark"
-                size={17}
-                color="#FFFFFF"
-              />
+          ) : (
+            <View style={[styles.professionalImage, styles.imageFallback]}>
+              <Ionicons name="person-outline" size={32} color={COLORS.muted} />
             </View>
           )}
 
-          {/* POSIÇÃO */}
+          <LinearGradient
+            pointerEvents="none"
+            colors={['transparent', 'rgba(0,0,0,0.60)']}
+            style={styles.imageGradient}
+          />
+
+          {professional.ratingAvg !== null ? (
+            <View style={styles.ratingBadge}>
+              <Ionicons name="star" size={11} color={COLORS.gold} />
+
+              <Text style={styles.ratingText}>
+                {professional.ratingAvg.toFixed(1)}
+              </Text>
+            </View>
+          ) : null}
+
+          {selected && (
+            <View style={styles.selectedBadge}>
+              <Ionicons name="checkmark" size={17} color="#FFFFFF" />
+            </View>
+          )}
 
           <View style={styles.numberBadge}>
             <Text style={styles.numberText}>
@@ -912,81 +507,32 @@ function ProfessionalCard({
           </View>
         </View>
 
-        {/* CONTEÚDO */}
-
         <View style={styles.cardContent}>
           <View style={styles.nameRow}>
             <View style={styles.nameArea}>
-              <Text
-                style={styles.professionalName}
-                numberOfLines={1}
-              >
+              <Text style={styles.professionalName} numberOfLines={1}>
                 {professional.name}
               </Text>
 
-              <Text style={styles.specialty}>
-                {professional.specialty}
-              </Text>
+              {professional.specialty ? (
+                <Text style={styles.specialty}>{professional.specialty}</Text>
+              ) : null}
             </View>
 
             <Ionicons
-              name={
-                selected
-                  ? 'checkmark-circle'
-                  : 'chevron-forward'
-              }
+              name={selected ? 'checkmark-circle' : 'chevron-forward'}
               size={19}
-              color={
-                selected
-                  ? COLORS.blue
-                  : COLORS.muted
-              }
+              color={selected ? COLORS.blue : COLORS.muted}
             />
           </View>
 
-          <Text
-            style={styles.about}
-            numberOfLines={2}
-          >
-            {professional.about}
-          </Text>
-
-          {/* TAGS */}
-
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.tags}
-          >
-            {professional.tags.map((tag) => (
-              <View
-                key={tag}
-                style={styles.tag}
-              >
-                <Text style={styles.tagText}>
-                  {tag}
-                </Text>
-              </View>
-            ))}
-          </ScrollView>
-
-          {/* META */}
+          {professional.bio ? (
+            <Text style={styles.about} numberOfLines={2}>
+              {professional.bio}
+            </Text>
+          ) : null}
 
           <View style={styles.cardFooter}>
-            <View style={styles.footerItem}>
-              <Ionicons
-                name="briefcase-outline"
-                size={13}
-                color={COLORS.muted}
-              />
-
-              <Text style={styles.footerText}>
-                {professional.experience}
-              </Text>
-            </View>
-
-            <View style={styles.footerSeparator} />
-
             <View style={styles.footerItem}>
               <Ionicons
                 name="chatbubble-ellipses-outline"
@@ -995,7 +541,7 @@ function ProfessionalCard({
               />
 
               <Text style={styles.footerText}>
-                {professional.reviews} avaliações
+                {professional.ratingCount} avaliações
               </Text>
             </View>
           </View>
@@ -1004,10 +550,6 @@ function ProfessionalCard({
     </Animated.View>
   );
 }
-
-/* ========================================================================== */
-/* STYLES                                                                     */
-/* ========================================================================== */
 
 const styles = StyleSheet.create({
   container: {
@@ -1019,13 +561,39 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 
+  centerState: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 30,
+  },
+
+  errorTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: COLORS.text,
+    textAlign: 'center',
+  },
+
+  errorButton: {
+    marginTop: 18,
+    height: 44,
+    paddingHorizontal: 20,
+    borderRadius: 16,
+    backgroundColor: COLORS.black,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  errorButtonText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+
   scrollContent: {
     paddingBottom: 30,
   },
-
-  /* ------------------------------------------------------------------------ */
-  /* HEADER                                                                   */
-  /* ------------------------------------------------------------------------ */
 
   header: {
     minHeight: 72,
@@ -1046,8 +614,7 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor:
-      'rgba(255,255,255,0.60)',
+    backgroundColor: 'rgba(255,255,255,0.60)',
   },
 
   headerCenter: {
@@ -1100,10 +667,6 @@ const styles = StyleSheet.create({
     color: COLORS.muted,
   },
 
-  /* ------------------------------------------------------------------------ */
-  /* PROGRESSO                                                                */
-  /* ------------------------------------------------------------------------ */
-
   progressContainer: {
     marginTop: 3,
     paddingHorizontal: 20,
@@ -1113,8 +676,7 @@ const styles = StyleSheet.create({
     height: 4,
     borderRadius: 2,
     overflow: 'hidden',
-    backgroundColor:
-      'rgba(0,0,0,0.07)',
+    backgroundColor: 'rgba(0,0,0,0.07)',
   },
 
   progressActive: {
@@ -1146,10 +708,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: COLORS.muted,
   },
-
-  /* ------------------------------------------------------------------------ */
-  /* SERVIÇO                                                                  */
-  /* ------------------------------------------------------------------------ */
 
   serviceSummary: {
     marginTop: 23,
@@ -1224,10 +782,6 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
   },
 
-  /* ------------------------------------------------------------------------ */
-  /* INTRO                                                                    */
-  /* ------------------------------------------------------------------------ */
-
   intro: {
     marginTop: 28,
     marginHorizontal: 20,
@@ -1247,53 +801,6 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     color: COLORS.secondary,
   },
-
-  /* ------------------------------------------------------------------------ */
-  /* RECOMENDAÇÃO                                                             */
-  /* ------------------------------------------------------------------------ */
-
-  recommendation: {
-    marginTop: 19,
-    marginHorizontal: 16,
-    padding: 14,
-    borderRadius: 21,
-    flexDirection: 'row',
-    backgroundColor: '#F8F3E9',
-    borderWidth: 1,
-    borderColor:
-      'rgba(181,138,69,0.10)',
-  },
-
-  recommendationIcon: {
-    width: 35,
-    height: 35,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FFFFFF',
-  },
-
-  recommendationContent: {
-    flex: 1,
-    marginLeft: 10,
-  },
-
-  recommendationTitle: {
-    fontSize: 11,
-    fontWeight: '900',
-    color: COLORS.text,
-  },
-
-  recommendationText: {
-    marginTop: 4,
-    fontSize: 10,
-    lineHeight: 16,
-    color: COLORS.secondary,
-  },
-
-  /* ------------------------------------------------------------------------ */
-  /* LISTA                                                                    */
-  /* ------------------------------------------------------------------------ */
 
   listHeader: {
     marginTop: 29,
@@ -1315,118 +822,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: COLORS.muted,
   },
-
-  onlineBadge: {
-    paddingHorizontal: 9,
-    paddingVertical: 6,
-    borderRadius: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    backgroundColor:
-      'rgba(48,177,98,0.08)',
-  },
-
-  onlineDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#35A867',
-  },
-
-  onlineText: {
-    fontSize: 9,
-    fontWeight: '800',
-    color: '#318A58',
-  },
-
-  /* ------------------------------------------------------------------------ */
-  /* QUALQUER PROFISSIONAL                                                   */
-  /* ------------------------------------------------------------------------ */
-
-  anyProfessionalWrapper: {
-    paddingHorizontal: 14,
-  },
-
-  anyProfessionalCard: {
-    minHeight: 94,
-    padding: 14,
-    borderRadius: 23,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: COLORS.white,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-  },
-
-  anyProfessionalSelected: {
-    borderColor: COLORS.blueBorder,
-    backgroundColor: COLORS.blueSoft,
-  },
-
-  anyProfessionalPressed: {
-    opacity: 0.86,
-    transform: [
-      {
-        scale: 0.99,
-      },
-    ],
-  },
-
-  anyIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 17,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: COLORS.blueSoft,
-  },
-
-  anyContent: {
-    flex: 1,
-    minWidth: 0,
-    marginLeft: 12,
-    marginRight: 10,
-  },
-
-  anyTitle: {
-    fontSize: 13,
-    fontWeight: '900',
-    color: COLORS.text,
-  },
-
-  anySubtitle: {
-    marginTop: 4,
-    fontSize: 10,
-    lineHeight: 15,
-    color: COLORS.secondary,
-  },
-
-  radio: {
-    width: 23,
-    height: 23,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: '#D1D1CD',
-    backgroundColor: COLORS.white,
-  },
-
-  radioSelected: {
-    borderColor: COLORS.blue,
-  },
-
-  radioInner: {
-    width: 11,
-    height: 11,
-    borderRadius: 6,
-    backgroundColor: COLORS.blue,
-  },
-
-  /* ------------------------------------------------------------------------ */
-  /* PROFISSIONAIS                                                            */
-  /* ------------------------------------------------------------------------ */
 
   professionalsList: {
     marginTop: 12,
@@ -1451,10 +846,6 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.blueSoft,
   },
 
-  professionalCardUnavailable: {
-    opacity: 0.55,
-  },
-
   professionalPressed: {
     opacity: 0.92,
   },
@@ -1470,8 +861,10 @@ const styles = StyleSheet.create({
     height: '100%',
   },
 
-  imageUnavailable: {
-    opacity: 0.65,
+  imageFallback: {
+    backgroundColor: '#EEEEEA',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 
   imageGradient: {
@@ -1492,63 +885,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor:
-      'rgba(255,255,255,0.94)',
+    backgroundColor: 'rgba(255,255,255,0.94)',
   },
 
   ratingText: {
     fontSize: 10,
     fontWeight: '900',
     color: COLORS.text,
-  },
-
-  statusBadge: {
-    position: 'absolute',
-    right: 12,
-    bottom: 12,
-    paddingHorizontal: 9,
-    paddingVertical: 6,
-    borderRadius: 11,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-  },
-
-  statusAvailable: {
-    backgroundColor:
-      'rgba(255,255,255,0.94)',
-  },
-
-  statusUnavailable: {
-    backgroundColor:
-      'rgba(20,20,20,0.78)',
-  },
-
-  statusDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
-
-  statusDotAvailable: {
-    backgroundColor: '#35A867',
-  },
-
-  statusDotUnavailable: {
-    backgroundColor: '#AAAAAA',
-  },
-
-  statusText: {
-    fontSize: 9,
-    fontWeight: '800',
-  },
-
-  statusTextAvailable: {
-    color: '#318A58',
-  },
-
-  statusTextUnavailable: {
-    color: '#FFFFFF',
   },
 
   selectedBadge: {
@@ -1572,8 +915,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor:
-      'rgba(255,255,255,0.88)',
+    backgroundColor: 'rgba(255,255,255,0.88)',
   },
 
   numberText: {
@@ -1616,25 +958,6 @@ const styles = StyleSheet.create({
     color: COLORS.secondary,
   },
 
-  tags: {
-    paddingTop: 11,
-    paddingRight: 5,
-    gap: 6,
-  },
-
-  tag: {
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-    borderRadius: 9,
-    backgroundColor: '#F3F3F0',
-  },
-
-  tagText: {
-    fontSize: 8,
-    fontWeight: '700',
-    color: COLORS.secondary,
-  },
-
   cardFooter: {
     marginTop: 13,
     paddingTop: 11,
@@ -1655,18 +978,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: COLORS.muted,
   },
-
-  footerSeparator: {
-    width: 3,
-    height: 3,
-    marginHorizontal: 8,
-    borderRadius: 2,
-    backgroundColor: '#C8C8C8',
-  },
-
-  /* ------------------------------------------------------------------------ */
-  /* EMPTY                                                                    */
-  /* ------------------------------------------------------------------------ */
 
   emptyCard: {
     marginTop: 12,
@@ -1707,10 +1018,6 @@ const styles = StyleSheet.create({
     color: COLORS.secondary,
   },
 
-  /* ------------------------------------------------------------------------ */
-  /* SEGURANÇA                                                                */
-  /* ------------------------------------------------------------------------ */
-
   trustCard: {
     marginTop: 22,
     marginHorizontal: 16,
@@ -1719,8 +1026,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     backgroundColor: COLORS.blueSoft,
     borderWidth: 1,
-    borderColor:
-      'rgba(29,99,255,0.10)',
+    borderColor: 'rgba(29,99,255,0.10)',
   },
 
   trustIcon: {
@@ -1750,17 +1056,9 @@ const styles = StyleSheet.create({
     color: COLORS.secondary,
   },
 
-  /* ------------------------------------------------------------------------ */
-  /* ESPAÇO INFERIOR                                                          */
-  /* ------------------------------------------------------------------------ */
-
   bottomSpace: {
     height: 155,
   },
-
-  /* ------------------------------------------------------------------------ */
-  /* CTA                                                                      */
-  /* ------------------------------------------------------------------------ */
 
   bottomContainer: {
     position: 'absolute',
@@ -1769,8 +1067,7 @@ const styles = StyleSheet.create({
     left: 0,
     overflow: 'hidden',
     borderTopWidth: 1,
-    borderTopColor:
-      'rgba(0,0,0,0.07)',
+    borderTopColor: 'rgba(0,0,0,0.07)',
   },
 
   bottomBlur: {
@@ -1836,10 +1133,6 @@ const styles = StyleSheet.create({
 
   pressed: {
     opacity: 0.78,
-    transform: [
-      {
-        scale: 0.97,
-      },
-    ],
+    transform: [{ scale: 0.97 }],
   },
 });

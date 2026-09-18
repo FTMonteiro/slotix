@@ -1,11 +1,7 @@
-import React, {
-  useCallback,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
+  ActivityIndicator,
   Animated,
   Easing,
   Pressable,
@@ -20,7 +16,10 @@ import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+
+import type { BusinessDTO, ServiceDTO } from '@slotix/types';
+import { getBusiness, getBusinessServices } from '../../services/businesses';
 
 const COLORS = {
   background: '#F3F3F0',
@@ -36,133 +35,83 @@ const COLORS = {
   border: 'rgba(0, 0, 0, 0.07)',
 };
 
-type ServiceCategory =
-  | 'Todos'
-  | 'Cabelo'
-  | 'Barba'
-  | 'Tratamento'
-  | 'Premium';
-
-type Service = {
-  id: string;
-  name: string;
-  description: string;
-  duration: string;
-  price: number;
-  category: Exclude<ServiceCategory, 'Todos'>;
-  icon: keyof typeof Ionicons.glyphMap;
-  popular?: boolean;
-};
-
-const categories: ServiceCategory[] = [
-  'Todos',
-  'Cabelo',
-  'Barba',
-  'Tratamento',
-  'Premium',
-];
-
-const services: Service[] = [
-  {
-    id: 'service-001',
-    name: 'Corte Premium',
-    description:
-      'Corte personalizado com acabamento detalhado.',
-    duration: '45 min',
-    price: 12000,
-    category: 'Cabelo',
-    icon: 'cut-outline',
-    popular: true,
-  },
-  {
-    id: 'service-002',
-    name: 'Corte + Barba',
-    description:
-      'Corte completo acompanhado de barba premium.',
-    duration: '1h 10 min',
-    price: 18000,
-    category: 'Barba',
-    icon: 'cut-outline',
-    popular: true,
-  },
-  {
-    id: 'service-003',
-    name: 'Barba Premium',
-    description:
-      'Modelagem, toalha quente e acabamento preciso.',
-    duration: '30 min',
-    price: 8000,
-    category: 'Barba',
-    icon: 'sparkles-outline',
-  },
-  {
-    id: 'service-004',
-    name: 'Tratamento Capilar',
-    description:
-      'Tratamento profundo para revitalizar o cabelo.',
-    duration: '50 min',
-    price: 15000,
-    category: 'Tratamento',
-    icon: 'water-outline',
-  },
-  {
-    id: 'service-005',
-    name: 'Experiência Executive',
-    description:
-      'Corte, barba, tratamento e finalização premium.',
-    duration: '1h 40 min',
-    price: 30000,
-    category: 'Premium',
-    icon: 'diamond-outline',
-    popular: true,
-  },
-  {
-    id: 'service-006',
-    name: 'Finalização & Styling',
-    description:
-      'Styling profissional para completar o visual.',
-    duration: '25 min',
-    price: 7000,
-    category: 'Cabelo',
-    icon: 'brush-outline',
-  },
-];
-
-const formatPrice = (value: number) => {
-  return `${value.toLocaleString('pt-AO')} Kz`;
-};
+const formatPrice = (value: number) => `${value.toLocaleString('pt-AO')} Kz`;
 
 export default function BookingServiceScreen() {
   const router = useRouter();
 
-  const [selectedCategory, setSelectedCategory] =
-    useState<ServiceCategory>('Todos');
+  const params = useLocalSearchParams<{ businessId?: string | string[] }>();
+  const businessId = Array.isArray(params.businessId)
+    ? params.businessId[0]
+    : params.businessId;
 
-  const [selectedService, setSelectedService] =
-    useState<string | null>(null);
+  const [business, setBusiness] = useState<BusinessDTO | null>(null);
+  const [services, setServices] = useState<ServiceDTO[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
 
-  const [selectedPrice, setSelectedPrice] =
-    useState(0);
+  const [selectedCategory, setSelectedCategory] = useState('Todos');
+  const [selectedServiceId, setSelectedServiceId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
 
-  const [searchQuery, setSearchQuery] =
-    useState('');
+  const continueScale = useRef(new Animated.Value(1)).current;
+  const selectionOpacity = useRef(new Animated.Value(0)).current;
+  const selectionTranslate = useRef(new Animated.Value(15)).current;
 
-  const continueScale =
-    useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    if (!businessId) {
+      setLoading(false);
+      setError(true);
+      return;
+    }
 
-  const selectionOpacity =
-    useRef(new Animated.Value(0)).current;
+    let cancelled = false;
 
-  const selectionTranslate =
-    useRef(new Animated.Value(15)).current;
+    async function load() {
+      setLoading(true);
+      setError(false);
+
+      try {
+        const [businessData, servicesData] = await Promise.all([
+          getBusiness(businessId as string),
+          getBusinessServices(businessId as string),
+        ]);
+
+        if (cancelled) return;
+        setBusiness(businessData);
+        setServices(servicesData);
+      } catch {
+        if (!cancelled) setError(true);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    void load();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [businessId]);
+
+  const categories = useMemo(() => {
+    const unique = Array.from(
+      new Set(
+        services
+          .map((service) => service.category)
+          .filter((category): category is string => Boolean(category)),
+      ),
+    );
+
+    return ['Todos', ...unique];
+  }, [services]);
 
   const filteredServices = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
 
     return services.filter((service) => {
       const matchesCategory =
-        selectedCategory === 'Todos' ||
-        service.category === selectedCategory;
+        selectedCategory === 'Todos' || service.category === selectedCategory;
 
       if (!matchesCategory) {
         return false;
@@ -174,24 +123,23 @@ export default function BookingServiceScreen() {
 
       return (
         service.name.toLowerCase().includes(query) ||
-        service.description
-          .toLowerCase()
-          .includes(query) ||
-        service.category
-          .toLowerCase()
-          .includes(query)
+        (service.category?.toLowerCase().includes(query) ?? false)
       );
     });
-  }, [searchQuery, selectedCategory]);
+  }, [searchQuery, selectedCategory, services]);
+
+  const selectedService = useMemo(
+    () => services.find((service) => service.id === selectedServiceId) ?? null,
+    [services, selectedServiceId],
+  );
 
   const handleBack = useCallback(() => {
     router.back();
   }, [router]);
 
   const handleSelectService = useCallback(
-    (service: Service) => {
-      setSelectedService(service.id);
-      setSelectedPrice(service.price);
+    (service: ServiceDTO) => {
+      setSelectedServiceId(service.id);
 
       selectionOpacity.setValue(0);
       selectionTranslate.setValue(15);
@@ -213,14 +161,11 @@ export default function BookingServiceScreen() {
         }),
       ]).start();
     },
-    [
-      selectionOpacity,
-      selectionTranslate,
-    ],
+    [selectionOpacity, selectionTranslate],
   );
 
   const handleContinuePress = useCallback(() => {
-    if (!selectedService) {
+    if (!selectedService || !businessId) {
       return;
     }
 
@@ -242,25 +187,49 @@ export default function BookingServiceScreen() {
     router.push({
       pathname: '/booking/professional',
       params: {
-        service: selectedService,
+        businessId,
+        serviceId: selectedService.id,
       },
     });
-  }, [
-    continueScale,
-    router,
-    selectedService,
-  ]);
+  }, [businessId, continueScale, router, selectedService]);
 
   const handleClearSearch = useCallback(() => {
     setSearchQuery('');
   }, []);
 
+  if (loading) {
+    return (
+      <View style={styles.container}>
+        <SafeAreaView edges={['top']} style={styles.safeArea}>
+          <View style={styles.centerState}>
+            <ActivityIndicator color={COLORS.black} />
+          </View>
+        </SafeAreaView>
+      </View>
+    );
+  }
+
+  if (error || !business || !businessId) {
+    return (
+      <View style={styles.container}>
+        <SafeAreaView edges={['top']} style={styles.safeArea}>
+          <View style={styles.centerState}>
+            <Text style={styles.errorTitle}>
+              Não foi possível carregar os serviços
+            </Text>
+
+            <Pressable onPress={handleBack} style={styles.errorButton}>
+              <Text style={styles.errorButtonText}>Voltar</Text>
+            </Pressable>
+          </View>
+        </SafeAreaView>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
-      <SafeAreaView
-        edges={['top']}
-        style={styles.safeArea}
-      >
+      <SafeAreaView edges={['top']} style={styles.safeArea}>
         <ScrollView
           style={styles.mainScroll}
           contentContainerStyle={styles.scrollContent}
@@ -284,36 +253,19 @@ export default function BookingServiceScreen() {
                 tint="light"
                 style={styles.headerButtonBlur}
               >
-                <Ionicons
-                  name="arrow-back"
-                  size={20}
-                  color={COLORS.black}
-                />
+                <Ionicons name="arrow-back" size={20} color={COLORS.black} />
               </BlurView>
             </Pressable>
 
             <View style={styles.headerCenter}>
-              <Text style={styles.headerEyebrow}>
-                AGENDAMENTO
-              </Text>
-
-              <Text style={styles.headerTitle}>
-                Escolha o serviço
-              </Text>
+              <Text style={styles.headerEyebrow}>AGENDAMENTO</Text>
+              <Text style={styles.headerTitle}>Escolha o serviço</Text>
             </View>
 
             <View style={styles.stepBadge}>
-              <Text style={styles.stepCurrent}>
-                1
-              </Text>
-
-              <Text style={styles.stepDivider}>
-                /
-              </Text>
-
-              <Text style={styles.stepTotal}>
-                4
-              </Text>
+              <Text style={styles.stepCurrent}>1</Text>
+              <Text style={styles.stepDivider}>/</Text>
+              <Text style={styles.stepTotal}>4</Text>
             </View>
           </View>
 
@@ -324,88 +276,64 @@ export default function BookingServiceScreen() {
             </View>
 
             <View style={styles.progressLabels}>
-              <Text style={styles.progressActiveText}>
-                Serviço
-              </Text>
-
-              <Text style={styles.progressText}>
-                Profissional
-              </Text>
-
-              <Text style={styles.progressText}>
-                Data
-              </Text>
-
-              <Text style={styles.progressText}>
-                Confirmar
-              </Text>
+              <Text style={styles.progressActiveText}>Serviço</Text>
+              <Text style={styles.progressText}>Profissional</Text>
+              <Text style={styles.progressText}>Data</Text>
+              <Text style={styles.progressText}>Confirmar</Text>
             </View>
           </View>
 
           {/* ESPAÇO */}
           <View style={styles.spaceCard}>
             <LinearGradient
-              colors={[
-                'rgba(255,255,255,0.96)',
-                'rgba(248,248,245,0.92)',
-              ]}
+              colors={['rgba(255,255,255,0.96)', 'rgba(248,248,245,0.92)']}
               style={styles.spaceGradient}
             >
               <View style={styles.spaceIcon}>
-                <Ionicons
-                  name="sparkles"
-                  size={18}
-                  color={COLORS.gold}
-                />
+                <Ionicons name="sparkles" size={18} color={COLORS.gold} />
               </View>
 
               <View style={styles.spaceInfo}>
-                <Text style={styles.spaceLabel}>
-                  ESPAÇO SELECIONADO
+                <Text style={styles.spaceLabel}>ESPAÇO SELECIONADO</Text>
+
+                <Text style={styles.spaceName} numberOfLines={1}>
+                  {business.name}
                 </Text>
 
-                <Text style={styles.spaceName}>
-                  Gentleman&apos;s Club
-                </Text>
+                {business.address || business.category ? (
+                  <View style={styles.spaceLocation}>
+                    <Ionicons
+                      name="location-outline"
+                      size={13}
+                      color={COLORS.muted}
+                    />
 
-                <View style={styles.spaceLocation}>
-                  <Ionicons
-                    name="location-outline"
-                    size={13}
-                    color={COLORS.muted}
-                  />
+                    <Text style={styles.spaceLocationText} numberOfLines={1}>
+                      {business.address ?? business.category}
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
 
-                  <Text
-                    style={styles.spaceLocationText}
-                  >
-                    Talatona, Luanda
+              {business.ratingAvg !== null ? (
+                <View style={styles.spaceRating}>
+                  <Ionicons name="star" size={12} color={COLORS.gold} />
+
+                  <Text style={styles.spaceRatingText}>
+                    {business.ratingAvg.toFixed(1)}
                   </Text>
                 </View>
-              </View>
-
-              <View style={styles.spaceRating}>
-                <Ionicons
-                  name="star"
-                  size={12}
-                  color={COLORS.gold}
-                />
-
-                <Text style={styles.spaceRatingText}>
-                  4.9
-                </Text>
-              </View>
+              ) : null}
             </LinearGradient>
           </View>
 
           {/* INTRO */}
           <View style={styles.intro}>
-            <Text style={styles.title}>
-              O que deseja fazer?
-            </Text>
+            <Text style={styles.title}>O que deseja fazer?</Text>
 
             <Text style={styles.subtitle}>
-              Escolha o serviço que melhor combina
-              com a experiência que procura.
+              Escolha o serviço que melhor combina com a experiência que
+              procura.
             </Text>
           </View>
 
@@ -415,11 +343,7 @@ export default function BookingServiceScreen() {
               <Ionicons
                 name="search-outline"
                 size={19}
-                color={
-                  searchQuery.length > 0
-                    ? COLORS.blue
-                    : COLORS.muted
-                }
+                color={searchQuery.length > 0 ? COLORS.blue : COLORS.muted}
               />
 
               <TextInput
@@ -442,14 +366,8 @@ export default function BookingServiceScreen() {
                   hitSlop={10}
                   style={styles.searchClearButton}
                 >
-                  <View
-                    style={styles.searchClearIcon}
-                  >
-                    <Ionicons
-                      name="close"
-                      size={13}
-                      color={COLORS.secondary}
-                    />
+                  <View style={styles.searchClearIcon}>
+                    <Ionicons name="close" size={13} color={COLORS.secondary} />
                   </View>
                 </Pressable>
               )}
@@ -461,43 +379,29 @@ export default function BookingServiceScreen() {
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
-              contentContainerStyle={
-                styles.categories
-              }
+              contentContainerStyle={styles.categories}
               keyboardShouldPersistTaps="handled"
               nestedScrollEnabled
             >
               {categories.map((category) => {
-                const active =
-                  selectedCategory === category;
+                const active = selectedCategory === category;
 
                 return (
                   <Pressable
                     key={category}
-                    onPress={() =>
-                      setSelectedCategory(
-                        category,
-                      )
-                    }
+                    onPress={() => setSelectedCategory(category)}
                     style={({ pressed }) => [
                       styles.category,
-                      active &&
-                        styles.categoryActive,
-                      pressed &&
-                        styles.categoryPressed,
+                      active && styles.categoryActive,
+                      pressed && styles.categoryPressed,
                     ]}
                   >
-                    {active && (
-                      <View
-                        style={styles.categoryDot}
-                      />
-                    )}
+                    {active && <View style={styles.categoryDot} />}
 
                     <Text
                       style={[
                         styles.categoryText,
-                        active &&
-                          styles.categoryTextActive,
+                        active && styles.categoryTextActive,
                       ]}
                     >
                       {category}
@@ -512,60 +416,30 @@ export default function BookingServiceScreen() {
           <View style={styles.servicesSection}>
             <View style={styles.servicesHeader}>
               <View>
-                <Text
-                  style={styles.sectionTitle}
-                >
-                  Serviços disponíveis
-                </Text>
+                <Text style={styles.sectionTitle}>Serviços disponíveis</Text>
 
-                <Text
-                  style={styles.sectionSubtitle}
-                >
+                <Text style={styles.sectionSubtitle}>
                   {filteredServices.length}{' '}
-                  {filteredServices.length === 1
-                    ? 'opção'
-                    : 'opções'}
-                </Text>
-              </View>
-
-              <View style={styles.verifiedBadge}>
-                <Ionicons
-                  name="checkmark-circle"
-                  size={15}
-                  color={COLORS.blue}
-                />
-
-                <Text
-                  style={styles.verifiedText}
-                >
-                  Verificado
+                  {filteredServices.length === 1 ? 'opção' : 'opções'}
                 </Text>
               </View>
             </View>
 
             <View style={styles.servicesList}>
               {filteredServices.length > 0 ? (
-                filteredServices.map(
-                  (service, index) => {
-                    const selected =
-                      selectedService ===
-                      service.id;
+                filteredServices.map((service, index) => {
+                  const selected = selectedServiceId === service.id;
 
-                    return (
-                      <ServiceItem
-                        key={service.id}
-                        service={service}
-                        selected={selected}
-                        index={index}
-                        onPress={() =>
-                          handleSelectService(
-                            service,
-                          )
-                        }
-                      />
-                    );
-                  },
-                )
+                  return (
+                    <ServiceItem
+                      key={service.id}
+                      service={service}
+                      selected={selected}
+                      index={index}
+                      onPress={() => handleSelectService(service)}
+                    />
+                  );
+                })
               ) : (
                 <View style={styles.emptyState}>
                   <View style={styles.emptyIcon}>
@@ -576,17 +450,13 @@ export default function BookingServiceScreen() {
                     />
                   </View>
 
-                  <Text
-                    style={styles.emptyTitle}
-                  >
+                  <Text style={styles.emptyTitle}>
                     Nenhum serviço encontrado
                   </Text>
 
-                  <Text
-                    style={styles.emptyText}
-                  >
-                    Tente pesquisar outro termo ou
-                    selecione uma categoria diferente.
+                  <Text style={styles.emptyText}>
+                    Tente pesquisar outro termo ou selecione uma categoria
+                    diferente.
                   </Text>
 
                   {searchQuery.length > 0 && (
@@ -594,11 +464,7 @@ export default function BookingServiceScreen() {
                       onPress={handleClearSearch}
                       style={styles.emptyButton}
                     >
-                      <Text
-                        style={
-                          styles.emptyButtonText
-                        }
-                      >
+                      <Text style={styles.emptyButtonText}>
                         Limpar pesquisa
                       </Text>
                     </Pressable>
@@ -608,40 +474,13 @@ export default function BookingServiceScreen() {
             </View>
           </View>
 
-          {/* NOTA */}
-          <View style={styles.noteCard}>
-            <View style={styles.noteIcon}>
-              <Ionicons
-                name="information-outline"
-                size={17}
-                color={COLORS.blue}
-              />
-            </View>
-
-            <View style={styles.noteContent}>
-              <Text style={styles.noteTitle}>
-                Experiência personalizada
-              </Text>
-
-              <Text style={styles.noteText}>
-                Depois de escolher o serviço, poderá
-                selecionar o profissional que deseja.
-                Esta escolha é opcional.
-              </Text>
-            </View>
-          </View>
-
           <View style={styles.bottomSpace} />
         </ScrollView>
       </SafeAreaView>
 
       {/* BARRA INFERIOR */}
       <View style={styles.bottomContainer}>
-        <BlurView
-          intensity={88}
-          tint="light"
-          style={styles.bottomBlur}
-        >
+        <BlurView intensity={88} tint="light" style={styles.bottomBlur}>
           <Animated.View
             style={[
               styles.bottomContent,
@@ -655,9 +494,7 @@ export default function BookingServiceScreen() {
 
                 transform: [
                   {
-                    translateY: selectedService
-                      ? selectionTranslate
-                      : 0,
+                    translateY: selectedService ? selectionTranslate : 0,
                   },
                 ],
               },
@@ -665,25 +502,17 @@ export default function BookingServiceScreen() {
           >
             <View style={styles.summary}>
               <Text style={styles.summaryLabel}>
-                {selectedService
-                  ? 'Serviço selecionado'
-                  : 'Selecione um serviço'}
+                {selectedService ? 'Serviço selecionado' : 'Selecione um serviço'}
               </Text>
 
               <Text style={styles.summaryValue}>
-                {selectedService
-                  ? formatPrice(selectedPrice)
-                  : '—'}
+                {selectedService ? formatPrice(selectedService.price) : '—'}
               </Text>
             </View>
 
             <Animated.View
               style={{
-                transform: [
-                  {
-                    scale: continueScale,
-                  },
-                ],
+                transform: [{ scale: continueScale }],
               }}
             >
               <Pressable
@@ -691,18 +520,14 @@ export default function BookingServiceScreen() {
                 disabled={!selectedService}
                 style={({ pressed }) => [
                   styles.continueButton,
-                  !selectedService &&
-                    styles.continueButtonDisabled,
-                  pressed &&
-                    selectedService &&
-                    styles.continueButtonPressed,
+                  !selectedService && styles.continueButtonDisabled,
+                  pressed && selectedService && styles.continueButtonPressed,
                 ]}
               >
                 <Text
                   style={[
                     styles.continueText,
-                    !selectedService &&
-                      styles.continueTextDisabled,
+                    !selectedService && styles.continueTextDisabled,
                   ]}
                 >
                   Continuar
@@ -711,11 +536,7 @@ export default function BookingServiceScreen() {
                 <Ionicons
                   name="arrow-forward"
                   size={18}
-                  color={
-                    selectedService
-                      ? '#FFFFFF'
-                      : '#A0A0A0'
-                  }
+                  color={selectedService ? '#FFFFFF' : '#A0A0A0'}
                 />
               </Pressable>
             </Animated.View>
@@ -732,13 +553,12 @@ function ServiceItem({
   index,
   onPress,
 }: {
-  service: Service;
+  service: ServiceDTO;
   selected: boolean;
   index: number;
   onPress: () => void;
 }) {
-  const scale =
-    useRef(new Animated.Value(1)).current;
+  const scale = useRef(new Animated.Value(1)).current;
 
   const handlePressIn = () => {
     Animated.spring(scale, {
@@ -760,16 +580,7 @@ function ServiceItem({
 
   return (
     <Animated.View
-      style={[
-        styles.serviceWrapper,
-        {
-          transform: [
-            {
-              scale,
-            },
-          ],
-        },
-      ]}
+      style={[styles.serviceWrapper, { transform: [{ scale }] }]}
     >
       <Pressable
         onPress={onPress}
@@ -777,125 +588,70 @@ function ServiceItem({
         onPressOut={handlePressOut}
         style={({ pressed }) => [
           styles.serviceCard,
-          selected &&
-            styles.serviceCardSelected,
-          pressed &&
-            styles.serviceCardPressed,
+          selected && styles.serviceCardSelected,
+          pressed && styles.serviceCardPressed,
         ]}
       >
-        {/* NÚMERO */}
         <View
           style={[
             styles.serviceNumber,
-            selected &&
-              styles.serviceNumberSelected,
+            selected && styles.serviceNumberSelected,
           ]}
         >
           {selected ? (
-            <Ionicons
-              name="checkmark"
-              size={17}
-              color="#FFFFFF"
-            />
+            <Ionicons name="checkmark" size={17} color="#FFFFFF" />
           ) : (
-            <Text
-              style={styles.serviceNumberText}
-            >
+            <Text style={styles.serviceNumberText}>
               {String(index + 1).padStart(2, '0')}
             </Text>
           )}
         </View>
 
-        {/* ÍCONE */}
         <View
-          style={[
-            styles.serviceIcon,
-            selected &&
-              styles.serviceIconSelected,
-          ]}
+          style={[styles.serviceIcon, selected && styles.serviceIconSelected]}
         >
           <Ionicons
-            name={service.icon}
+            name="cut-outline"
             size={21}
-            color={
-              selected
-                ? COLORS.blue
-                : COLORS.black
-            }
+            color={selected ? COLORS.blue : COLORS.black}
           />
         </View>
 
-        {/* INFORMAÇÃO */}
         <View style={styles.serviceInfo}>
           <View style={styles.serviceTitleRow}>
-            <Text
-              style={styles.serviceName}
-              numberOfLines={1}
-            >
+            <Text style={styles.serviceName} numberOfLines={1}>
               {service.name}
             </Text>
-
-            {service.popular && (
-              <View style={styles.popularBadge}>
-                <Text
-                  style={styles.popularText}
-                >
-                  POPULAR
-                </Text>
-              </View>
-            )}
           </View>
 
-          <Text
-            style={styles.serviceDescription}
-            numberOfLines={2}
-          >
-            {service.description}
-          </Text>
+          {service.description ? (
+            <Text style={styles.serviceDescription} numberOfLines={2}>
+              {service.description}
+            </Text>
+          ) : null}
 
           <View style={styles.serviceMeta}>
             <View style={styles.metaItem}>
-              <Ionicons
-                name="time-outline"
-                size={13}
-                color={COLORS.muted}
-              />
+              <Ionicons name="time-outline" size={13} color={COLORS.muted} />
 
-              <Text style={styles.metaText}>
-                {service.duration}
-              </Text>
+              <Text style={styles.metaText}>{service.duration} min</Text>
             </View>
 
-            <View
-              style={styles.metaSeparator}
-            />
+            {service.category ? (
+              <>
+                <View style={styles.metaSeparator} />
 
-            <Text
-              style={styles.serviceCategory}
-            >
-              {service.category}
-            </Text>
+                <Text style={styles.serviceCategory}>{service.category}</Text>
+              </>
+            ) : null}
           </View>
         </View>
 
-        {/* PREÇO */}
         <View style={styles.priceArea}>
-          <Text style={styles.price}>
-            {formatPrice(service.price)}
-          </Text>
+          <Text style={styles.price}>{formatPrice(service.price)}</Text>
 
-          <View
-            style={[
-              styles.radio,
-              selected &&
-                styles.radioSelected,
-            ]}
-          >
-            {selected && (
-              <View
-                style={styles.radioInner}
-              />
-            )}
+          <View style={[styles.radio, selected && styles.radioSelected]}>
+            {selected && <View style={styles.radioInner} />}
           </View>
         </View>
       </Pressable>
@@ -913,16 +669,40 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 
+  centerState: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 30,
+  },
+
+  errorTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: COLORS.text,
+    textAlign: 'center',
+  },
+
+  errorButton: {
+    marginTop: 18,
+    height: 44,
+    paddingHorizontal: 20,
+    borderRadius: 16,
+    backgroundColor: COLORS.black,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  errorButtonText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+
   mainScroll: {
     flex: 1,
   },
 
-  /*
-   * IMPORTANTE:
-   * Removido flexGrow: 1.
-   * O conteúdo agora ocupa somente a altura real
-   * dos elementos, evitando áreas vazias.
-   */
   scrollContent: {
     paddingBottom: 150,
   },
@@ -946,8 +726,7 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor:
-      'rgba(255,255,255,0.60)',
+    backgroundColor: 'rgba(255,255,255,0.60)',
   },
 
   headerCenter: {
@@ -1009,8 +788,7 @@ const styles = StyleSheet.create({
     height: 4,
     borderRadius: 2,
     overflow: 'hidden',
-    backgroundColor:
-      'rgba(0,0,0,0.07)',
+    backgroundColor: 'rgba(0,0,0,0.07)',
   },
 
   progressActive: {
@@ -1142,15 +920,11 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor:
-      'rgba(255,255,255,0.92)',
+    backgroundColor: 'rgba(255,255,255,0.92)',
     borderWidth: 1,
     borderColor: COLORS.border,
     shadowColor: '#000000',
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.035,
     shadowRadius: 12,
     elevation: 2,
@@ -1182,10 +956,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#EEEEEA',
   },
 
-  /*
-   * Container das categorias com altura natural.
-   * Não existe espaço vertical reservado.
-   */
   categoryContainer: {
     height: 48,
     marginTop: 6,
@@ -1205,8 +975,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor:
-      'rgba(255,255,255,0.78)',
+    backgroundColor: 'rgba(255,255,255,0.78)',
     borderWidth: 1,
     borderColor: COLORS.border,
   },
@@ -1236,17 +1005,9 @@ const styles = StyleSheet.create({
 
   categoryPressed: {
     opacity: 0.78,
-    transform: [
-      {
-        scale: 0.97,
-      },
-    ],
+    transform: [{ scale: 0.97 }],
   },
 
-  /*
-   * A seção começa praticamente imediatamente
-   * depois dos menus.
-   */
   servicesSection: {
     marginTop: 8,
   },
@@ -1269,22 +1030,6 @@ const styles = StyleSheet.create({
     marginTop: 3,
     fontSize: 11,
     color: COLORS.muted,
-  },
-
-  verifiedBadge: {
-    paddingHorizontal: 9,
-    paddingVertical: 6,
-    borderRadius: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: COLORS.blueSoft,
-  },
-
-  verifiedText: {
-    marginLeft: 4,
-    fontSize: 9,
-    fontWeight: '800',
-    color: COLORS.blue,
   },
 
   servicesList: {
@@ -1366,21 +1111,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '900',
     color: COLORS.text,
-  },
-
-  popularBadge: {
-    marginLeft: 6,
-    paddingHorizontal: 5,
-    paddingVertical: 3,
-    borderRadius: 6,
-    backgroundColor: '#F5F0E7',
-  },
-
-  popularText: {
-    fontSize: 6,
-    fontWeight: '900',
-    letterSpacing: 0.6,
-    color: COLORS.gold,
   },
 
   serviceDescription: {
@@ -1467,8 +1197,7 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor:
-      'rgba(255,255,255,0.70)',
+    backgroundColor: 'rgba(255,255,255,0.70)',
     borderWidth: 1,
     borderColor: COLORS.border,
   },
@@ -1513,46 +1242,6 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
 
-  noteCard: {
-    marginTop: 22,
-    marginHorizontal: 16,
-    padding: 15,
-    borderRadius: 21,
-    flexDirection: 'row',
-    backgroundColor:
-      'rgba(29,99,255,0.055)',
-    borderWidth: 1,
-    borderColor:
-      'rgba(29,99,255,0.10)',
-  },
-
-  noteIcon: {
-    width: 34,
-    height: 34,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FFFFFF',
-  },
-
-  noteContent: {
-    flex: 1,
-    marginLeft: 10,
-  },
-
-  noteTitle: {
-    fontSize: 11,
-    fontWeight: '900',
-    color: COLORS.text,
-  },
-
-  noteText: {
-    marginTop: 4,
-    fontSize: 10,
-    lineHeight: 16,
-    color: COLORS.secondary,
-  },
-
   bottomSpace: {
     height: 150,
   },
@@ -1564,8 +1253,7 @@ const styles = StyleSheet.create({
     left: 0,
     overflow: 'hidden',
     borderTopWidth: 1,
-    borderTopColor:
-      'rgba(0,0,0,0.07)',
+    borderTopColor: 'rgba(0,0,0,0.07)',
   },
 
   bottomBlur: {
@@ -1630,10 +1318,6 @@ const styles = StyleSheet.create({
 
   pressed: {
     opacity: 0.78,
-    transform: [
-      {
-        scale: 0.97,
-      },
-    ],
+    transform: [{ scale: 0.97 }],
   },
 });

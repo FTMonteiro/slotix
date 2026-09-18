@@ -86,6 +86,8 @@ export interface BusinessDTO {
   updatedAt: string;
 }
 
+export type BusinessSortBy = "recommended" | "nearest" | "topRated";
+
 export interface BusinessListQuery {
   category?: string;
   search?: string;
@@ -95,6 +97,7 @@ export interface BusinessListQuery {
   latitude?: number;
   longitude?: number;
   radiusKm?: number;
+  sortBy?: BusinessSortBy;
   page?: number;
   limit?: number;
 }
@@ -272,4 +275,10 @@ export interface SearchQuery {
   sortBy?: SearchSortBy;
   page?: number;
   limit?: number;
+}
+
+export interface UpdateProfileRequest {
+  name?: string;
+  phone?: string;
+  avatarUrl?: string;
 }

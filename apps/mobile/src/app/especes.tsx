@@ -1,6 +1,7 @@
 import React, {
   memo,
   useCallback,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -26,38 +27,29 @@ import { LinearGradient } from 'expo-linear-gradient';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useRouter } from 'expo-router';
 
+import type { BusinessDTO, BusinessSortBy } from '@slotix/types';
+import { listBusinesses } from '../services/businesses';
+import { getCurrentCoordinates, type Coordinates } from '../services/location';
+import { useFavorites } from '../contexts/FavoritesContext';
+
 type IconName = keyof typeof Ionicons.glyphMap;
 
-type Space = {
-  id: string;
-  name: string;
-  category: string;
-  province: string;
-  neighborhood: string;
-  rating: number;
-  reviews: number;
-  distance: number;
-  price: number;
-  service: string;
-  image: string;
-  premium?: boolean;
-  availableToday?: boolean;
+type CategoryOption = {
+  label: string;
+  icon: IconName;
 };
 
-type SortMode =
-  | 'recommended'
-  | 'rating'
-  | 'distance'
-  | 'price-low'
-  | 'price-high';
-
+// `category` here is free text sent as-is to ?category= (the backend has no fixed
+// category enum) — these are just convenient, common shortcuts, like any app's filter
+// chips. "Todos" is a client-only sentinel meaning "no category filter".
 type Filters = {
-  minRating: number | null;
+  category: string;
+  radiusKm: number | null;
   maxPrice: number | null;
-  maxDistance: number | null;
-  availableToday: boolean;
-  premiumOnly: boolean;
+  minRating: number | null;
 };
+
+type SortMode = Extract<BusinessSortBy, 'recommended' | 'nearest'> | 'topRated';
 
 const COLORS = {
   background: '#F6F6F4',
@@ -74,10 +66,7 @@ const COLORS = {
   goldSoft: '#FAF5E9',
 };
 
-const CATEGORIES: {
-  label: string;
-  icon: IconName;
-}[] = [
+const CATEGORIES: CategoryOption[] = [
   {
     label: 'Todos',
     icon: 'apps-outline',
@@ -104,228 +93,23 @@ const CATEGORIES: {
   },
 ];
 
-const PROVINCES = [
-  'Todas',
-  'Luanda',
-  'Bengo',
-  'Benguela',
-  'Bié',
-  'Cabinda',
-  'Cuando',
-  'Cuanza Norte',
-  'Cuanza Sul',
-  'Cunene',
-  'Cubango',
-  'Huambo',
-  'Huíla',
-  'Icolo e Bengo',
-  'Lunda Norte',
-  'Lunda Sul',
-  'Malanje',
-  'Moxico',
-  'Moxico Leste',
-  'Namibe',
-  'Uíge',
-  'Zaire',
-];
-
-const SORT_OPTIONS: {
-  value: SortMode;
-  label: string;
-}[] = [
+const SORT_MODES: { mode: SortMode; label: string }[] = [
   {
-    value: 'recommended',
-    label: 'Recomendados',
+    mode: 'recommended',
+    label: 'Recomendado',
   },
   {
-    value: 'rating',
-    label: 'Melhor avaliação',
+    mode: 'topRated',
+    label: 'Melhor avaliado',
   },
   {
-    value: 'distance',
-    label: 'Mais próximos',
-  },
-  {
-    value: 'price-low',
-    label: 'Menor preço',
-  },
-  {
-    value: 'price-high',
-    label: 'Maior preço',
+    mode: 'nearest',
+    label: 'Mais próximo',
   },
 ];
-
-const SPACES: Space[] = [
-  {
-    id: '1',
-    name: 'Barbearia Executive',
-    category: 'Barbearia',
-    province: 'Luanda',
-    neighborhood: 'Alvalade',
-    rating: 4.9,
-    reviews: 184,
-    distance: 1.2,
-    price: 7500,
-    service: 'Corte + Barba',
-    image:
-      'https://images.unsplash.com/photo-1503951914875-452162b0f3f1?auto=format&fit=crop&w=1200&q=90',
-    premium: true,
-    availableToday: true,
-  },
-  {
-    id: '2',
-    name: 'Lumina Nails & Spa',
-    category: 'Nails',
-    province: 'Luanda',
-    neighborhood: 'Talatona',
-    rating: 4.8,
-    reviews: 126,
-    distance: 3.4,
-    price: 10000,
-    service: 'Manicure Premium',
-    image:
-      'https://images.unsplash.com/photo-1604654894610-df63bc536371?auto=format&fit=crop&w=1200&q=90',
-    premium: true,
-    availableToday: true,
-  },
-  {
-    id: '3',
-    name: 'The Royal Spa',
-    category: 'SPA',
-    province: 'Luanda',
-    neighborhood: 'Ilha de Luanda',
-    rating: 4.9,
-    reviews: 98,
-    distance: 4.1,
-    price: 15000,
-    service: 'Royal Relax',
-    image:
-      'https://images.unsplash.com/photo-1540555700478-4be289fbecef?auto=format&fit=crop&w=1200&q=90',
-    premium: true,
-    availableToday: true,
-  },
-  {
-    id: '4',
-    name: "Gentleman's Club",
-    category: 'Barbearia',
-    province: 'Luanda',
-    neighborhood: 'Alvalade',
-    rating: 4.7,
-    reviews: 211,
-    distance: 1.8,
-    price: 5000,
-    service: 'Corte Executivo',
-    image:
-      'https://images.unsplash.com/photo-1621605815971-fbc98d665033?auto=format&fit=crop&w=1200&q=90',
-    availableToday: true,
-  },
-  {
-    id: '5',
-    name: 'Lumina Beauty Studio',
-    category: 'Salão',
-    province: 'Luanda',
-    neighborhood: 'Miramar',
-    rating: 4.8,
-    reviews: 157,
-    distance: 2.9,
-    price: 7500,
-    service: 'Beauty Experience',
-    image:
-      'https://images.unsplash.com/photo-1560066984-138dadb4c035?auto=format&fit=crop&w=1200&q=90',
-    premium: true,
-    availableToday: true,
-  },
-  {
-    id: '6',
-    name: 'Glow Skin Studio',
-    category: 'Estética',
-    province: 'Luanda',
-    neighborhood: 'Talatona',
-    rating: 4.9,
-    reviews: 87,
-    distance: 5.2,
-    price: 10000,
-    service: 'Skin Treatment',
-    image:
-      'https://images.unsplash.com/photo-1570172619644-dfd03ed5d881?auto=format&fit=crop&w=1200&q=90',
-    premium: true,
-  },
-  {
-    id: '7',
-    name: 'Benguela Premium Beauty',
-    category: 'Salão',
-    province: 'Benguela',
-    neighborhood: 'Centro',
-    rating: 4.8,
-    reviews: 74,
-    distance: 6.8,
-    price: 8500,
-    service: 'Beauty Signature',
-    image:
-      'https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?auto=format&fit=crop&w=1200&q=90',
-    premium: true,
-    availableToday: true,
-  },
-  {
-    id: '8',
-    name: 'Huíla Gentleman',
-    category: 'Barbearia',
-    province: 'Huíla',
-    neighborhood: 'Lubango',
-    rating: 4.7,
-    reviews: 92,
-    distance: 8.4,
-    price: 5500,
-    service: 'Executive Cut',
-    image:
-      'https://images.unsplash.com/photo-1599351431202-1e0f0137899a?auto=format&fit=crop&w=1200&q=90',
-    availableToday: true,
-  },
-  {
-    id: '9',
-    name: 'Aura Wellness',
-    category: 'SPA',
-    province: 'Luanda',
-    neighborhood: 'Talatona',
-    rating: 4.9,
-    reviews: 64,
-    distance: 5.9,
-    price: 18000,
-    service: 'Wellness Ritual',
-    image:
-      'https://images.unsplash.com/photo-1544161515-4ab6ce6db874?auto=format&fit=crop&w=1200&q=90',
-    premium: true,
-  },
-  {
-    id: '10',
-    name: 'Noble Men Studio',
-    category: 'Barbearia',
-    province: 'Luanda',
-    neighborhood: 'Maianga',
-    rating: 4.8,
-    reviews: 143,
-    distance: 2.2,
-    price: 6500,
-    service: 'Royal Haircut',
-    image:
-      'https://images.unsplash.com/photo-1512690459411-b9245aed614b?auto=format&fit=crop&w=1200&q=90',
-    premium: true,
-    availableToday: true,
-  },
-];
-
-function formatPrice(value: number) {
-  return `${new Intl.NumberFormat('pt-AO').format(value)} Kz`;
-}
-
-function getSortLabel(mode: SortMode) {
-  const option = SORT_OPTIONS.find((item) => item.value === mode);
-
-  return option?.label ?? 'Recomendados';
-}
 
 type SpaceCardProps = {
-  space: Space;
+  space: BusinessDTO;
   favorite: boolean;
   onToggleFavorite: (id: string) => void;
   onPress: (id: string) => void;
@@ -397,12 +181,18 @@ const SpaceCard = memo(
           onPress={handlePress}
         >
           <View style={styles.imageContainer}>
-            <Image
-              source={{ uri: space.image }}
-              style={styles.cardImage}
-              contentFit="cover"
-              transition={250}
-            />
+            {space.imageUrl ? (
+              <Image
+                source={{ uri: space.imageUrl }}
+                style={styles.cardImage}
+                contentFit="cover"
+                transition={250}
+              />
+            ) : (
+              <View style={[styles.cardImage, styles.imageFallback]}>
+                <Ionicons name="storefront-outline" size={26} color="rgba(0,0,0,0.20)" />
+              </View>
+            )}
 
             <LinearGradient
               colors={[
@@ -412,20 +202,6 @@ const SpaceCard = memo(
               ]}
               style={styles.imageGradient}
             />
-
-            {space.premium && (
-              <View style={styles.premiumBadge}>
-                <Ionicons
-                  name="diamond"
-                  size={11}
-                  color={COLORS.gold}
-                />
-
-                <Text style={styles.premiumText}>
-                  PREMIUM
-                </Text>
-              </View>
-            )}
 
             <Animated.View
               style={[
@@ -458,16 +234,6 @@ const SpaceCard = memo(
               </Pressable>
             </Animated.View>
 
-            {space.availableToday && (
-              <View style={styles.availableBadge}>
-                <View style={styles.availableDot} />
-
-                <Text style={styles.availableText}>
-                  Hoje
-                </Text>
-              </View>
-            )}
-
             <View style={styles.ratingBadge}>
               <Ionicons
                 name="star"
@@ -476,7 +242,7 @@ const SpaceCard = memo(
               />
 
               <Text style={styles.ratingText}>
-                {space.rating.toFixed(1)}
+                {space.ratingAvg !== null ? space.ratingAvg.toFixed(1) : 'Novo'}
               </Text>
             </View>
           </View>
@@ -497,12 +263,14 @@ const SpaceCard = memo(
               />
             </View>
 
-            <Text
-              style={styles.serviceText}
-              numberOfLines={1}
-            >
-              {space.service}
-            </Text>
+            {space.category ? (
+              <Text
+                style={styles.serviceText}
+                numberOfLines={1}
+              >
+                {space.category}
+              </Text>
+            ) : null}
 
             <View style={styles.locationRow}>
               <Ionicons
@@ -515,18 +283,20 @@ const SpaceCard = memo(
                 style={styles.locationText}
                 numberOfLines={1}
               >
-                {space.neighborhood} · {space.distance} km
+                {space.address ?? '—'}
               </Text>
             </View>
 
             <View style={styles.cardBottomRow}>
               <Text style={styles.priceText}>
-                {formatPrice(space.price)}
+                {space.ratingCount > 0 ? `${space.ratingCount} avaliações` : 'Sem avaliações'}
               </Text>
 
-              <Text style={styles.reviewsText}>
-                {space.reviews} avaliações
-              </Text>
+              {space.distanceKm !== null ? (
+                <Text style={styles.reviewsText}>
+                  {space.distanceKm.toFixed(1)} km
+                </Text>
+              ) : null}
             </View>
           </View>
         </Pressable>
@@ -539,26 +309,23 @@ SpaceCard.displayName = 'SpaceCard';
 
 export default function SpacesScreen() {
   const router = useRouter();
+  const { isFavorite, toggleFavorite } = useFavorites();
 
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [searchVisible, setSearchVisible] = useState(false);
 
-  const [selectedCategory, setSelectedCategory] =
-    useState('Todos');
+  const [coordinates, setCoordinates] =
+    useState<Coordinates | null>(null);
 
-  const [selectedProvince, setSelectedProvince] =
-    useState('Luanda');
-
-  const [favorites, setFavorites] = useState<string[]>(
-    [],
-  );
+  const [results, setResults] = useState<BusinessDTO[]>([]);
+  const [loading, setLoading] = useState(true);
 
   const [filters, setFilters] = useState<Filters>({
-    minRating: null,
+    category: 'Todos',
+    radiusKm: null,
     maxPrice: null,
-    maxDistance: null,
-    availableToday: false,
-    premiumOnly: false,
+    minRating: null,
   });
 
   const [draftFilters, setDraftFilters] =
@@ -567,200 +334,141 @@ export default function SpacesScreen() {
   const [sortMode, setSortMode] =
     useState<SortMode>('recommended');
 
-  const [provinceVisible, setProvinceVisible] =
-    useState(false);
-
   const [filterVisible, setFilterVisible] =
     useState(false);
 
-  const [sortVisible, setSortVisible] =
-    useState(false);
+  // Debounce search text so every keystroke doesn't fire a request.
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search.trim()), 400);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  // "nearest" only means something with the device's location — requested lazily, the
+  // first time it's actually needed, rather than on screen mount.
+  const ensureCoordinates = useCallback(async () => {
+    if (coordinates) return coordinates;
+    const current = await getCurrentCoordinates();
+    setCoordinates(current);
+    return current;
+  }, [coordinates]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      setLoading(true);
+      try {
+        const data = await listBusinesses({
+          category: filters.category !== 'Todos' ? filters.category : undefined,
+          search: debouncedSearch || undefined,
+          maxPrice: filters.maxPrice ?? undefined,
+          minRating: filters.minRating ?? undefined,
+          latitude: coordinates?.latitude,
+          longitude: coordinates?.longitude,
+          radiusKm: filters.radiusKm ?? undefined,
+          sortBy: sortMode,
+          limit: 30,
+        });
+        if (!cancelled) setResults(data.data);
+      } catch {
+        if (!cancelled) setResults([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    void load();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [filters, debouncedSearch, sortMode, coordinates]);
 
   const activeFilterCount = useMemo(() => {
     let count = 0;
 
-    if (filters.minRating !== null) count += 1;
+    if (filters.category !== 'Todos') count += 1;
+    if (filters.radiusKm !== null) count += 1;
     if (filters.maxPrice !== null) count += 1;
-    if (filters.maxDistance !== null) count += 1;
-    if (filters.availableToday) count += 1;
-    if (filters.premiumOnly) count += 1;
+    if (filters.minRating !== null) count += 1;
 
     return count;
   }, [filters]);
 
-  const filteredSpaces = useMemo(() => {
-    const normalizedSearch = search
-      .trim()
-      .toLowerCase();
-
-    const result = SPACES.filter((space) => {
-      const matchesProvince =
-        selectedProvince === 'Todas' ||
-        space.province === selectedProvince;
-
-      const matchesCategory =
-        selectedCategory === 'Todos' ||
-        space.category === selectedCategory;
-
-      const matchesSearch =
-        normalizedSearch.length === 0 ||
-        space.name.toLowerCase().includes(normalizedSearch) ||
-        space.category
-          .toLowerCase()
-          .includes(normalizedSearch) ||
-        space.service
-          .toLowerCase()
-          .includes(normalizedSearch) ||
-        space.neighborhood
-          .toLowerCase()
-          .includes(normalizedSearch) ||
-        space.province
-          .toLowerCase()
-          .includes(normalizedSearch);
-
-      const matchesRating =
-        filters.minRating === null ||
-        space.rating >= filters.minRating;
-
-      const matchesPrice =
-        filters.maxPrice === null ||
-        space.price <= filters.maxPrice;
-
-      const matchesDistance =
-        filters.maxDistance === null ||
-        space.distance <= filters.maxDistance;
-
-      const matchesToday =
-        !filters.availableToday ||
-        space.availableToday === true;
-
-      const matchesPremium =
-        !filters.premiumOnly ||
-        space.premium === true;
-
-      return (
-        matchesProvince &&
-        matchesCategory &&
-        matchesSearch &&
-        matchesRating &&
-        matchesPrice &&
-        matchesDistance &&
-        matchesToday &&
-        matchesPremium
-      );
-    });
-
-    return [...result].sort((a, b) => {
-      switch (sortMode) {
-        case 'rating':
-          return b.rating - a.rating;
-
-        case 'distance':
-          return a.distance - b.distance;
-
-        case 'price-low':
-          return a.price - b.price;
-
-        case 'price-high':
-          return b.price - a.price;
-
-        case 'recommended':
-        default:
-          if (
-            Boolean(a.premium) !==
-            Boolean(b.premium)
-          ) {
-            return a.premium ? -1 : 1;
-          }
-
-          if (a.rating !== b.rating) {
-            return b.rating - a.rating;
-          }
-
-          return b.reviews - a.reviews;
-      }
-    });
-  }, [
-    filters,
-    search,
-    selectedCategory,
-    selectedProvince,
-    sortMode,
-  ]);
-
-  const openSpace = useCallback(
-    (_id: string) => {
-      router.push('/space');
+  const navigateToSpace = useCallback(
+    (businessId: string) => {
+      router.push({ pathname: '/space', params: { businessId } } as any);
     },
     [router],
   );
-
-  const toggleFavorite = useCallback(
-    (id: string) => {
-      setFavorites((current) =>
-        current.includes(id)
-          ? current.filter((item) => item !== id)
-          : [...current, id],
-      );
-    },
-    [],
-  );
-
-  const applyFilters = useCallback(() => {
-    setFilters(draftFilters);
-    setFilterVisible(false);
-  }, [draftFilters]);
-
-  const clearFilters = useCallback(() => {
-    const emptyFilters: Filters = {
-      minRating: null,
-      maxPrice: null,
-      maxDistance: null,
-      availableToday: false,
-      premiumOnly: false,
-    };
-
-    setDraftFilters(emptyFilters);
-    setFilters(emptyFilters);
-  }, []);
 
   const openFilters = useCallback(() => {
     setDraftFilters(filters);
     setFilterVisible(true);
   }, [filters]);
 
-  const resetEverything = useCallback(() => {
-    setSearch('');
-    setSelectedCategory('Todos');
-    setSelectedProvince('Luanda');
-    setSortMode('recommended');
-
-    const emptyFilters: Filters = {
-      minRating: null,
-      maxPrice: null,
-      maxDistance: null,
-      availableToday: false,
-      premiumOnly: false,
-    };
-
-    setFilters(emptyFilters);
-    setDraftFilters(emptyFilters);
+  const closeFilters = useCallback(() => {
+    setFilterVisible(false);
   }, []);
 
+  const applyFilters = useCallback(() => {
+    setFilters(draftFilters);
+    closeFilters();
+  }, [draftFilters, closeFilters]);
+
+  const clearFilters = useCallback(() => {
+    const emptyFilters: Filters = {
+      category: 'Todos',
+      radiusKm: null,
+      maxPrice: null,
+      minRating: null,
+    };
+
+    setDraftFilters(emptyFilters);
+    setFilters(emptyFilters);
+  }, []);
+
+  const resetEverything = useCallback(() => {
+    setSearch('');
+    clearFilters();
+    setSortMode('recommended');
+  }, [clearFilters]);
+
+  const selectQuickCategory = useCallback(
+    (category: string) => {
+      setFilters((current) => ({
+        ...current,
+        category,
+      }));
+    },
+    [],
+  );
+
+  const selectSortMode = useCallback(
+    async (mode: SortMode) => {
+      if (mode === 'nearest') {
+        const current = await ensureCoordinates();
+        if (!current) return; // permission denied — stay on the current mode
+      }
+      setSortMode(mode);
+    },
+    [ensureCoordinates],
+  );
+
   const renderSpace = useCallback(
-    ({ item }: { item: Space }) => (
+    ({ item }: { item: BusinessDTO }) => (
       <SpaceCard
         space={item}
-        favorite={favorites.includes(item.id)}
+        favorite={isFavorite(item.id)}
         onToggleFavorite={toggleFavorite}
-        onPress={openSpace}
+        onPress={navigateToSpace}
       />
     ),
-    [favorites, openSpace, toggleFavorite],
+    [isFavorite, toggleFavorite, navigateToSpace],
   );
 
   const keyExtractor = useCallback(
-    (item: Space) => item.id,
+    (item: BusinessDTO) => item.id,
     [],
   );
 
@@ -788,7 +496,7 @@ export default function SpacesScreen() {
         </View>
 
         <FlatList
-          data={filteredSpaces}
+          data={results}
           keyExtractor={keyExtractor}
           renderItem={renderSpace}
           numColumns={2}
@@ -804,9 +512,7 @@ export default function SpacesScreen() {
               {/* LOCATION */}
               <Pressable
                 style={styles.locationSelector}
-                onPress={() =>
-                  setProvinceVisible(true)
-                }
+                onPress={() => void ensureCoordinates()}
               >
                 <View
                   style={styles.locationIconBox}
@@ -828,15 +534,17 @@ export default function SpacesScreen() {
                   <Text
                     style={styles.locationValue}
                   >
-                    {selectedProvince}
+                    {coordinates ? 'Perto de si' : 'Ativar localização'}
                   </Text>
                 </View>
 
-                <Ionicons
-                  name="chevron-down"
-                  size={17}
-                  color={COLORS.muted}
-                />
+                {!coordinates && (
+                  <Ionicons
+                    name="chevron-forward"
+                    size={17}
+                    color={COLORS.muted}
+                  />
+                )}
               </Pressable>
 
               {/* CATEGORIES */}
@@ -852,14 +560,14 @@ export default function SpacesScreen() {
                 >
                   {CATEGORIES.map((category) => {
                     const active =
-                      selectedCategory ===
+                      filters.category ===
                       category.label;
 
                     return (
                       <Pressable
                         key={category.label}
                         onPress={() =>
-                          setSelectedCategory(
+                          selectQuickCategory(
                             category.label,
                           )
                         }
@@ -938,25 +646,6 @@ export default function SpacesScreen() {
                     </View>
                   )}
                 </Pressable>
-
-                <Pressable
-                  style={styles.controlButton}
-                  onPress={() =>
-                    setSortVisible(true)
-                  }
-                >
-                  <Ionicons
-                    name="swap-vertical-outline"
-                    size={16}
-                    color={COLORS.text}
-                  />
-
-                  <Text
-                    style={styles.controlText}
-                  >
-                    {getSortLabel(sortMode)}
-                  </Text>
-                </Pressable>
               </View>
 
               {/* RESULT HEADER */}
@@ -971,12 +660,13 @@ export default function SpacesScreen() {
                   <Text
                     style={styles.resultSubtitle}
                   >
-                    {filteredSpaces.length}{' '}
-                    disponíveis
+                    {loading
+                      ? 'A carregar…'
+                      : `${results.length} disponíve${results.length === 1 ? 'l' : 'is'}`}
                   </Text>
                 </View>
 
-                {search.length > 0 && (
+                {(search.length > 0 || activeFilterCount > 0) && (
                   <Pressable
                     onPress={resetEverything}
                     style={styles.resetButton}
@@ -991,38 +681,73 @@ export default function SpacesScreen() {
                   </Pressable>
                 )}
               </View>
+
+              {/* SORT */}
+              <View style={styles.sortRow}>
+                {SORT_MODES.map((option) => {
+                  const active = sortMode === option.mode;
+
+                  return (
+                    <Pressable
+                      key={option.mode}
+                      onPress={() => void selectSortMode(option.mode)}
+                      style={[
+                        styles.sortChip,
+                        active && styles.sortChipActive,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.sortChipText,
+                          active && styles.sortChipTextActive,
+                        ]}
+                      >
+                        {option.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
             </>
           }
           ListEmptyComponent={
-            <View style={styles.emptyState}>
-              <View style={styles.emptyIcon}>
-                <Ionicons
-                  name="search-outline"
-                  size={25}
-                  color={COLORS.muted}
-                />
-              </View>
-
-              <Text style={styles.emptyTitle}>
-                Nenhum espaço encontrado
-              </Text>
-
-              <Text style={styles.emptyText}>
-                Tente alterar a pesquisa ou os
-                filtros.
-              </Text>
-
-              <Pressable
-                style={styles.emptyButton}
-                onPress={resetEverything}
-              >
-                <Text
-                  style={styles.emptyButtonText}
-                >
-                  Limpar filtros
+            loading ? (
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyText}>
+                  A carregar espaços…
                 </Text>
-              </Pressable>
-            </View>
+              </View>
+            ) : (
+              <View style={styles.emptyState}>
+                <View style={styles.emptyIcon}>
+                  <Ionicons
+                    name="search-outline"
+                    size={25}
+                    color={COLORS.muted}
+                  />
+                </View>
+
+                <Text style={styles.emptyTitle}>
+                  Nenhum espaço encontrado
+                </Text>
+
+                <Text style={styles.emptyText}>
+                  Tente alterar a pesquisa ou os
+                  filtros.
+                </Text>
+
+                <Pressable
+                  style={styles.emptyButton}
+                  onPress={resetEverything}
+                >
+                  <Text
+                    style={styles.emptyButtonText}
+                  >
+                    Limpar filtros
+                  </Text>
+                </Pressable>
+              </View>
+            )
           }
         />
 
@@ -1103,124 +828,17 @@ export default function SpacesScreen() {
           </View>
         </Modal>
 
-        {/* PROVINCE MODAL */}
-        <Modal
-          visible={provinceVisible}
-          transparent
-          animationType="slide"
-          onRequestClose={() =>
-            setProvinceVisible(false)
-          }
-        >
-          <View style={styles.modalRoot}>
-            <Pressable
-              style={styles.modalBackdrop}
-              onPress={() =>
-                setProvinceVisible(false)
-              }
-            />
-
-            <View style={styles.bottomSheet}>
-              <View
-                style={styles.sheetHandle}
-              />
-
-              <View style={styles.sheetHeader}>
-                <View>
-                  <Text
-                    style={styles.sheetTitle}
-                  >
-                    Localização
-                  </Text>
-
-                  <Text
-                    style={styles.sheetSubtitle}
-                  >
-                    Escolha uma província
-                  </Text>
-                </View>
-
-                <Pressable
-                  onPress={() =>
-                    setProvinceVisible(false)
-                  }
-                  style={styles.sheetClose}
-                >
-                  <Ionicons
-                    name="close"
-                    size={19}
-                    color={COLORS.text}
-                  />
-                </Pressable>
-              </View>
-
-              <ScrollView
-                showsVerticalScrollIndicator={false}
-                contentContainerStyle={
-                  styles.optionList
-                }
-              >
-                {PROVINCES.map((province) => {
-                  const active =
-                    selectedProvince === province;
-
-                  return (
-                    <Pressable
-                      key={province}
-                      onPress={() => {
-                        setSelectedProvince(
-                          province,
-                        );
-                        setProvinceVisible(false);
-                      }}
-                      style={[
-                        styles.optionRow,
-                        active &&
-                          styles.optionRowActive,
-                      ]}
-                    >
-                      <View>
-                        <Text
-                          style={[
-                            styles.optionText,
-                            active &&
-                              styles.optionTextActive,
-                          ]}
-                        >
-                          {province}
-                        </Text>
-                      </View>
-
-                      {active && (
-                        <Ionicons
-                          name="checkmark"
-                          size={19}
-                          color={COLORS.black}
-                        />
-                      )}
-                    </Pressable>
-                  );
-                })}
-              </ScrollView>
-            </View>
-          </View>
-        </Modal>
-
         {/* FILTER MODAL */}
         <Modal
           visible={filterVisible}
           transparent
           animationType="slide"
-          onRequestClose={() =>
-            setFilterVisible(false)
-          }
+          onRequestClose={closeFilters}
         >
           <View style={styles.modalRoot}>
             <Pressable
               style={styles.modalBackdrop}
-              onPress={() =>
-                setFilterVisible(false)
-              }
+              onPress={closeFilters}
             />
 
             <View style={styles.bottomSheet}>
@@ -1244,9 +862,7 @@ export default function SpacesScreen() {
                 </View>
 
                 <Pressable
-                  onPress={() =>
-                    setFilterVisible(false)
-                  }
+                  onPress={closeFilters}
                   style={styles.sheetClose}
                 >
                   <Ionicons
@@ -1366,7 +982,7 @@ export default function SpacesScreen() {
                                 styles.filterChipTextActive,
                             ]}
                           >
-                            {formatPrice(price)}
+                            {new Intl.NumberFormat('pt-AO').format(price)} Kz
                           </Text>
                         </Pressable>
                       );
@@ -1389,7 +1005,7 @@ export default function SpacesScreen() {
                 >
                   {[2, 5, 10, 20].map((distance) => {
                     const active =
-                      draftFilters.maxDistance ===
+                      draftFilters.radiusKm ===
                       distance;
 
                     return (
@@ -1399,7 +1015,7 @@ export default function SpacesScreen() {
                           setDraftFilters(
                             (current) => ({
                               ...current,
-                              maxDistance:
+                              radiusKm:
                                 active
                                   ? null
                                   : distance,
@@ -1435,146 +1051,6 @@ export default function SpacesScreen() {
                     );
                   })}
                 </View>
-
-                {/* TOGGLES */}
-                <View
-                  style={styles.toggleSection}
-                >
-                  <Pressable
-                    style={styles.toggleRow}
-                    onPress={() =>
-                      setDraftFilters(
-                        (current) => ({
-                          ...current,
-                          availableToday:
-                            !current.availableToday,
-                        }),
-                      )
-                    }
-                  >
-                    <View
-                      style={
-                        styles.toggleInfo
-                      }
-                    >
-                      <View
-                        style={
-                          styles.toggleIcon
-                        }
-                      >
-                        <Ionicons
-                          name="flash-outline"
-                          size={17}
-                          color={
-                            COLORS.text
-                          }
-                        />
-                      </View>
-
-                      <View>
-                        <Text
-                          style={
-                            styles.toggleTitle
-                          }
-                        >
-                          Disponível hoje
-                        </Text>
-
-                        <Text
-                          style={
-                            styles.toggleSubtitle
-                          }
-                        >
-                          Mostrar apenas horários
-                          disponíveis
-                        </Text>
-                      </View>
-                    </View>
-
-                    <View
-                      style={[
-                        styles.switchTrack,
-                        draftFilters.availableToday &&
-                          styles.switchTrackActive,
-                      ]}
-                    >
-                      <View
-                        style={[
-                          styles.switchThumb,
-                          draftFilters.availableToday &&
-                            styles.switchThumbActive,
-                        ]}
-                      />
-                    </View>
-                  </Pressable>
-
-                  <Pressable
-                    style={styles.toggleRow}
-                    onPress={() =>
-                      setDraftFilters(
-                        (current) => ({
-                          ...current,
-                          premiumOnly:
-                            !current.premiumOnly,
-                        }),
-                      )
-                    }
-                  >
-                    <View
-                      style={
-                        styles.toggleInfo
-                      }
-                    >
-                      <View
-                        style={
-                          styles.toggleIcon
-                        }
-                      >
-                        <Ionicons
-                          name="diamond-outline"
-                          size={17}
-                          color={
-                            COLORS.text
-                          }
-                        />
-                      </View>
-
-                      <View>
-                        <Text
-                          style={
-                            styles.toggleTitle
-                          }
-                        >
-                          Apenas Premium
-                        </Text>
-
-                        <Text
-                          style={
-                            styles.toggleSubtitle
-                          }
-                        >
-                          Espaços selecionados
-                        </Text>
-                      </View>
-                    </View>
-
-                    <View
-                      style={[
-                        styles.switchTrack,
-                        draftFilters.premiumOnly &&
-                          styles.switchTrackActive,
-                      ]}
-                    >
-                      <View
-                        style={[
-                          styles.switchThumb,
-                          draftFilters.premiumOnly &&
-                            styles.switchThumbActive,
-                        ]}
-                      />
-                    </View>
-                  </Pressable>
-                </View>
               </ScrollView>
 
               <View
@@ -1607,116 +1083,6 @@ export default function SpacesScreen() {
                     color={COLORS.white}
                   />
                 </Pressable>
-              </View>
-            </View>
-          </View>
-        </Modal>
-
-        {/* SORT MODAL */}
-        <Modal
-          visible={sortVisible}
-          transparent
-          animationType="slide"
-          onRequestClose={() =>
-            setSortVisible(false)
-          }
-        >
-          <View style={styles.modalRoot}>
-            <Pressable
-              style={styles.modalBackdrop}
-              onPress={() =>
-                setSortVisible(false)
-              }
-            />
-
-            <View
-              style={[
-                styles.bottomSheet,
-                styles.sortSheet,
-              ]}
-            >
-              <View
-                style={styles.sheetHandle}
-              />
-
-              <View style={styles.sheetHeader}>
-                <View>
-                  <Text
-                    style={styles.sheetTitle}
-                  >
-                    Ordenar por
-                  </Text>
-
-                  <Text
-                    style={styles.sheetSubtitle}
-                  >
-                    Encontre primeiro o que
-                    procura
-                  </Text>
-                </View>
-
-                <Pressable
-                  onPress={() =>
-                    setSortVisible(false)
-                  }
-                  style={styles.sheetClose}
-                >
-                  <Ionicons
-                    name="close"
-                    size={19}
-                    color={COLORS.text}
-                  />
-                </Pressable>
-              </View>
-
-              <View style={styles.sortOptions}>
-                {SORT_OPTIONS.map((option) => {
-                  const active =
-                    sortMode === option.value;
-
-                  return (
-                    <Pressable
-                      key={option.value}
-                      style={[
-                        styles.sortRow,
-                        active &&
-                          styles.sortRowActive,
-                      ]}
-                      onPress={() => {
-                        setSortMode(
-                          option.value,
-                        );
-                        setSortVisible(false);
-                      }}
-                    >
-                      <Text
-                        style={[
-                          styles.sortText,
-                          active &&
-                            styles.sortTextActive,
-                        ]}
-                      >
-                        {option.label}
-                      </Text>
-
-                      {active && (
-                        <View
-                          style={
-                            styles.sortCheck
-                          }
-                        >
-                          <Ionicons
-                            name="checkmark"
-                            size={15}
-                            color={
-                              COLORS.white
-                            }
-                          />
-                        </View>
-                      )}
-                    </Pressable>
-                  );
-                })}
               </View>
             </View>
           </View>
@@ -1939,6 +1305,38 @@ const styles = StyleSheet.create({
     color: COLORS.text,
   },
 
+  /* SORT */
+
+  sortRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 18,
+  },
+
+  sortChip: {
+    paddingHorizontal: 13,
+    paddingVertical: 9,
+    borderRadius: 13,
+    backgroundColor: COLORS.white,
+    borderWidth: 1,
+    borderColor: COLORS.line,
+  },
+
+  sortChipActive: {
+    backgroundColor: COLORS.black,
+    borderColor: COLORS.black,
+  },
+
+  sortChipText: {
+    fontSize: 10.5,
+    fontWeight: '700',
+    color: COLORS.text,
+  },
+
+  sortChipTextActive: {
+    color: COLORS.white,
+  },
+
   /* CARD */
 
   card: {
@@ -1962,32 +1360,18 @@ const styles = StyleSheet.create({
     height: '100%',
   },
 
+  imageFallback: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EDEDED',
+  },
+
   imageGradient: {
     position: 'absolute',
     top: 0,
     right: 0,
     bottom: 0,
     left: 0,
-  },
-
-  premiumBadge: {
-    position: 'absolute',
-    top: 10,
-    left: 10,
-    height: 25,
-    paddingHorizontal: 8,
-    borderRadius: 10,
-    backgroundColor: 'rgba(255,255,255,0.92)',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-
-  premiumText: {
-    fontSize: 7,
-    fontWeight: '900',
-    letterSpacing: 0.8,
-    color: COLORS.gold,
   },
 
   favoriteButtonWrapper: {
@@ -2007,32 +1391,6 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-
-  availableBadge: {
-    position: 'absolute',
-    left: 10,
-    bottom: 10,
-    height: 24,
-    paddingHorizontal: 8,
-    borderRadius: 9,
-    backgroundColor: 'rgba(255,255,255,0.92)',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-  },
-
-  availableDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: COLORS.success,
-  },
-
-  availableText: {
-    fontSize: 8,
-    fontWeight: '800',
-    color: COLORS.success,
   },
 
   ratingBadge: {
@@ -2207,10 +1565,6 @@ const styles = StyleSheet.create({
     paddingBottom: 18,
   },
 
-  sortSheet: {
-    maxHeight: '65%',
-  },
-
   sheetHandle: {
     alignSelf: 'center',
     width: 38,
@@ -2248,34 +1602,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#F3F3F1',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-
-  optionList: {
-    paddingBottom: 20,
-  },
-
-  optionRow: {
-    minHeight: 54,
-    paddingHorizontal: 13,
-    borderRadius: 15,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 6,
-  },
-
-  optionRowActive: {
-    backgroundColor: '#F3F3F1',
-  },
-
-  optionText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: COLORS.text,
-  },
-
-  optionTextActive: {
-    fontWeight: '800',
   },
 
   /* FILTER */
@@ -2329,72 +1655,6 @@ const styles = StyleSheet.create({
     color: COLORS.white,
   },
 
-  toggleSection: {
-    marginTop: 23,
-  },
-
-  toggleRow: {
-    minHeight: 67,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.line,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-
-  toggleInfo: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-
-  toggleIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 13,
-    backgroundColor: '#F3F3F1',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 11,
-  },
-
-  toggleTitle: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: COLORS.text,
-  },
-
-  toggleSubtitle: {
-    marginTop: 3,
-    fontSize: 9,
-    fontWeight: '500',
-    color: COLORS.muted,
-  },
-
-  switchTrack: {
-    width: 45,
-    height: 27,
-    borderRadius: 14,
-    backgroundColor: '#DDDDD9',
-    padding: 3,
-    justifyContent: 'center',
-  },
-
-  switchTrackActive: {
-    backgroundColor: COLORS.black,
-  },
-
-  switchThumb: {
-    width: 21,
-    height: 21,
-    borderRadius: 11,
-    backgroundColor: COLORS.white,
-  },
-
-  switchThumbActive: {
-    alignSelf: 'flex-end',
-  },
-
   filterActions: {
     flexDirection: 'row',
     gap: 9,
@@ -2431,45 +1691,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '800',
     color: COLORS.white,
-  },
-
-  /* SORT */
-
-  sortOptions: {
-    paddingBottom: 15,
-  },
-
-  sortRow: {
-    minHeight: 53,
-    paddingHorizontal: 14,
-    borderRadius: 15,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 6,
-  },
-
-  sortRowActive: {
-    backgroundColor: '#F3F3F1',
-  },
-
-  sortText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: COLORS.text,
-  },
-
-  sortTextActive: {
-    fontWeight: '800',
-  },
-
-  sortCheck: {
-    width: 25,
-    height: 25,
-    borderRadius: 9,
-    backgroundColor: COLORS.black,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
 
   /* EMPTY */

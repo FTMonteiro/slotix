@@ -1,7 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   ActivityIndicator,
@@ -19,6 +19,8 @@ import {
   TextInput,
   View,
 } from 'react-native';
+
+import { getMe, updateMe } from '../../services/users';
 
 const COLORS = {
   background: '#F5F5F2',
@@ -118,17 +120,13 @@ export default function PersonalInfoScreen() {
   // DADOS
   // ==========================================================
 
-  const [fullName, setFullName] = useState('Faustino Monteiro');
+  const [fullName, setFullName] = useState('');
 
-  const [email] = useState('faustino@example.com');
+  const [email, setEmail] = useState('');
 
-  const [phone, setPhone] = useState(
-    '+244 900 000 000',
-  );
+  const [phone, setPhone] = useState('');
 
-  const [city, setCity] = useState('Luanda');
-
-  const [country, setCountry] = useState('Angola');
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
 
   // ==========================================================
   // FOTO
@@ -142,6 +140,8 @@ export default function PersonalInfoScreen() {
   // ESTADOS
   // ==========================================================
 
+  const [loading, setLoading] = useState(true);
+
   const [saving, setSaving] = useState(false);
 
   const [saved, setSaved] = useState(false);
@@ -149,6 +149,43 @@ export default function PersonalInfoScreen() {
   const saveScale = useRef(
     new Animated.Value(1),
   ).current;
+
+  // ==========================================================
+  // CARREGAR PERFIL
+  // ==========================================================
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      setLoading(true);
+
+      try {
+        const me = await getMe();
+        if (cancelled) return;
+
+        setFullName(me.name);
+        setEmail(me.email);
+        setPhone(me.phone ?? '');
+        setAvatarUrl(me.avatarUrl);
+      } catch (error) {
+        if (!cancelled) {
+          Alert.alert(
+            'Erro',
+            'Não foi possível carregar os seus dados.',
+          );
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    void load();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // ==========================================================
   // INICIAIS
@@ -165,7 +202,7 @@ export default function PersonalInfoScreen() {
       )
       .join('');
 
-    return result || 'FM';
+    return result || '?';
   }, [fullName]);
 
   // ==========================================================
@@ -174,10 +211,7 @@ export default function PersonalInfoScreen() {
 
   const isFormValid =
     fullName.trim().length >= 2 &&
-    email.trim().length > 0 &&
-    phone.trim().length >= 6 &&
-    city.trim().length > 0 &&
-    country.trim().length > 0;
+    phone.trim().length >= 6;
 
   // ==========================================================
   // ALTERAÇÃO
@@ -398,12 +432,6 @@ export default function PersonalInfoScreen() {
     const cleanPhone =
       phone.trim();
 
-    const cleanCity =
-      city.trim();
-
-    const cleanCountry =
-      country.trim();
-
     if (!cleanName) {
       Alert.alert(
         'Nome obrigatório',
@@ -431,43 +459,18 @@ export default function PersonalInfoScreen() {
       return;
     }
 
-    if (!cleanCity) {
-      Alert.alert(
-        'Cidade obrigatória',
-        'Digite a sua cidade.',
-      );
-
-      return;
-    }
-
-    if (!cleanCountry) {
-      Alert.alert(
-        'País obrigatório',
-        'Digite o seu país.',
-      );
-
-      return;
-    }
-
     setSaving(true);
 
     setSaved(false);
 
     try {
-      /*
-       * FRONTEND ONLY
-       *
-       * Não existe backend neste momento.
-       *
-       * Simulamos o salvamento para que a interface
-       * tenha o comportamento real de uma aplicação.
-       */
-
-      await new Promise<void>((resolve) => {
-        setTimeout(() => {
-          resolve();
-        }, 800);
+      const updated = await updateMe({
+        name: cleanName,
+        phone: cleanPhone,
       });
+
+      setFullName(updated.name);
+      setPhone(updated.phone ?? '');
 
       setSaved(true);
 
@@ -500,6 +503,21 @@ export default function PersonalInfoScreen() {
   // ==========================================================
   // RENDER
   // ==========================================================
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <StatusBar
+          barStyle="dark-content"
+          backgroundColor={COLORS.background}
+        />
+
+        <View style={[styles.keyboardView, styles.loadingContainer]}>
+          <ActivityIndicator size="large" color={COLORS.black} />
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -570,10 +588,10 @@ export default function PersonalInfoScreen() {
                   styles.avatarPressed,
               ]}
             >
-              {photoUri ? (
+              {photoUri || avatarUrl ? (
                 <Image
                   source={{
-                    uri: photoUri,
+                    uri: photoUri ?? avatarUrl ?? undefined,
                   }}
                   style={styles.avatarImage}
                 />
@@ -718,63 +736,6 @@ export default function PersonalInfoScreen() {
                   markAsChanged();
                 }}
                 keyboardType="phone-pad"
-              />
-            </View>
-          </View>
-
-          {/* ================================================= */}
-          {/* LOCATION */}
-          {/* ================================================= */}
-
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <View
-                style={
-                  styles.sectionHeaderText
-                }
-              >
-                <Text style={styles.sectionTitle}>
-                  Localização
-                </Text>
-
-                <Text
-                  style={
-                    styles.sectionDescription
-                  }
-                >
-                  Usada para melhorar a sua
-                  experiência.
-                </Text>
-              </View>
-            </View>
-
-            <View style={styles.formCard}>
-              <InputField
-                label="Cidade"
-                value={city}
-                placeholder="Digite a sua cidade"
-                icon="location-outline"
-                onChangeText={(value) => {
-                  setCity(value);
-                  markAsChanged();
-                }}
-                autoCapitalize="words"
-              />
-
-              <View
-                style={styles.fieldDivider}
-              />
-
-              <InputField
-                label="País"
-                value={country}
-                placeholder="Digite o seu país"
-                icon="globe-outline"
-                onChangeText={(value) => {
-                  setCountry(value);
-                  markAsChanged();
-                }}
-                autoCapitalize="words"
               />
             </View>
           </View>
@@ -966,6 +927,11 @@ const styles = StyleSheet.create({
 
   keyboardView: {
     flex: 1,
+  },
+
+  loadingContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 
   scrollContent: {

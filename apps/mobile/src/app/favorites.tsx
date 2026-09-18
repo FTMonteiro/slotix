@@ -10,7 +10,6 @@ import {
   Animated,
   FlatList,
   Image,
-  Keyboard,
   Pressable,
   StyleSheet,
   Text,
@@ -22,77 +21,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useRouter } from 'expo-router';
 
-type FavoriteSpace = {
-  name: string;
-  category: string;
-  location: string;
-  rating: string;
-  reviews: string;
-  image: string;
-  service: string;
-  duration: string;
-  price: string;
-  featured?: boolean;
-};
-
-const FAVORITES: FavoriteSpace[] = [
-  {
-    name: 'Maison Noir',
-    category: 'Barbearia Premium',
-    location: 'Talatona',
-    rating: '4.9',
-    reviews: '128',
-    image:
-      'https://images.unsplash.com/photo-1503951914875-452162b0f3f1?auto=format&fit=crop&w=1400&q=90',
-    service: 'Corte + Barba',
-    duration: '60 min',
-    price: '18.000 Kz',
-    featured: true,
-  },
-  {
-    name: 'The Gentlemen Club',
-    category: 'Barbearia',
-    location: 'Ilha de Luanda',
-    rating: '4.8',
-    reviews: '96',
-    image:
-      'https://images.unsplash.com/photo-1621605815971-fbc98d665033?auto=format&fit=crop&w=1400&q=90',
-    service: 'Corte Premium',
-    duration: '45 min',
-    price: '15.000 Kz',
-  },
-  {
-    name: 'Lumière Beauty',
-    category: 'Beauty & Wellness',
-    location: 'Miramar',
-    rating: '5.0',
-    reviews: '74',
-    image:
-      'https://images.unsplash.com/photo-1560066984-138dadb4c035?auto=format&fit=crop&w=1400&q=90',
-    service: 'Beauty Experience',
-    duration: '90 min',
-    price: '25.000 Kz',
-    featured: true,
-  },
-  {
-    name: 'Atelier 24',
-    category: 'Hair Studio',
-    location: 'Ingombota',
-    rating: '4.9',
-    reviews: '61',
-    image:
-      'https://images.unsplash.com/photo-1521590832167-7bcbfaa6381f?auto=format&fit=crop&w=1400&q=90',
-    service: 'Hair Styling',
-    duration: '75 min',
-    price: '20.000 Kz',
-  },
-];
+import type { FavoriteDTO } from '@slotix/types';
+import { useFavorites } from '../contexts/FavoritesContext';
 
 const FILTERS = ['Todos', 'Barbearia', 'Beauty', 'Hair'];
 
-function getCategory(item: FavoriteSpace) {
-  const value =
-    `${item.name} ${item.category}`.toLowerCase();
+function getCategory(item: FavoriteDTO): string {
+  const value = `${item.business.name} ${item.business.category ?? ''}`.toLowerCase();
 
   if (
     value.includes('barbear') ||
@@ -122,9 +57,9 @@ function getCategory(item: FavoriteSpace) {
 }
 
 type FavoriteCardProps = {
-  item: FavoriteSpace;
-  onRemove: (name: string) => void;
-  onOpen: (item: FavoriteSpace) => void;
+  item: FavoriteDTO;
+  onRemove: (businessId: string) => void;
+  onOpen: (item: FavoriteDTO) => void;
 };
 
 const FavoriteCard = memo(function FavoriteCard({
@@ -159,8 +94,8 @@ const FavoriteCard = memo(function FavoriteCard({
   }, [item, onOpen]);
 
   const handleRemove = useCallback(() => {
-    onRemove(item.name);
-  }, [item.name, onRemove]);
+    onRemove(item.businessId);
+  }, [item.businessId, onRemove]);
 
   return (
     <Animated.View
@@ -177,11 +112,17 @@ const FavoriteCard = memo(function FavoriteCard({
         onPressOut={handlePressOut}
       >
         <View style={styles.imageWrapper}>
-          <Image
-            source={{ uri: item.image }}
-            style={styles.image}
-            resizeMode="cover"
-          />
+          {item.business.imageUrl ? (
+            <Image
+              source={{ uri: item.business.imageUrl }}
+              style={styles.image}
+              resizeMode="cover"
+            />
+          ) : (
+            <View style={[styles.image, styles.imageFallback]}>
+              <Ionicons name="storefront-outline" size={26} color="rgba(0,0,0,0.20)" />
+            </View>
+          )}
 
           <View style={styles.imageOverlay} />
 
@@ -198,15 +139,17 @@ const FavoriteCard = memo(function FavoriteCard({
           </Pressable>
 
           <View style={styles.imageInfo}>
-            <Text style={styles.category}>
-              {item.category}
-            </Text>
+            {item.business.category ? (
+              <Text style={styles.category}>
+                {item.business.category}
+              </Text>
+            ) : null}
 
             <Text
               style={styles.name}
               numberOfLines={1}
             >
-              {item.name}
+              {item.business.name}
             </Text>
           </View>
         </View>
@@ -219,17 +162,13 @@ const FavoriteCard = memo(function FavoriteCard({
               color="#777772"
             />
 
-            <Text style={styles.location}>
-              {item.location}
+            <Text style={styles.location} numberOfLines={1}>
+              {item.business.address ?? '—'}
             </Text>
           </View>
 
           <View style={styles.mainInfo}>
             <View style={styles.serviceInfo}>
-              <Text style={styles.service}>
-                {item.service}
-              </Text>
-
               <View style={styles.meta}>
                 <View style={styles.rating}>
                   <Ionicons
@@ -239,30 +178,16 @@ const FavoriteCard = memo(function FavoriteCard({
                   />
 
                   <Text style={styles.ratingText}>
-                    {item.rating}
+                    {item.business.ratingAvg !== null
+                      ? item.business.ratingAvg.toFixed(1)
+                      : 'Novo'}
                   </Text>
 
                   <Text style={styles.reviews}>
-                    {item.reviews}
+                    {item.business.ratingCount}
                   </Text>
                 </View>
-
-                <View style={styles.metaDivider} />
-
-                <Text style={styles.duration}>
-                  {item.duration}
-                </Text>
               </View>
-            </View>
-
-            <View style={styles.priceContainer}>
-              <Text style={styles.price}>
-                {item.price}
-              </Text>
-
-              <Text style={styles.priceCaption}>
-                a partir de
-              </Text>
             </View>
           </View>
 
@@ -287,13 +212,10 @@ const FavoriteCard = memo(function FavoriteCard({
 
 export default function FavoritesScreen() {
   const router = useRouter();
-
-  const [favorites, setFavorites] =
-    useState<FavoriteSpace[]>(FAVORITES);
+  const { favorites, loading, toggleFavorite } = useFavorites();
 
   const [search, setSearch] = useState('');
-  const [activeFilter, setActiveFilter] =
-    useState('Todos');
+  const [activeFilter, setActiveFilter] = useState('Todos');
 
   const [toast, setToast] = useState('');
 
@@ -327,23 +249,18 @@ export default function FavoritesScreen() {
   );
 
   const handleRemove = useCallback(
-    (name: string) => {
-      setFavorites((current) =>
-        current.filter(
-          (item) => item.name !== name,
-        ),
-      );
-
+    (businessId: string) => {
+      void toggleFavorite(businessId);
       showToast('Removido dos favoritos');
     },
-    [showToast],
+    [toggleFavorite, showToast],
   );
 
   const handleOpen = useCallback(
-    (_item: FavoriteSpace) => {
-      showToast('Detalhes do espaço em breve');
+    (item: FavoriteDTO) => {
+      router.push({ pathname: '/space', params: { businessId: item.businessId } } as any);
     },
-    [showToast],
+    [router],
   );
 
   const filteredFavorites = useMemo(() => {
@@ -363,10 +280,9 @@ export default function FavoritesScreen() {
       }
 
       const content = [
-        item.name,
-        item.category,
-        item.location,
-        item.service,
+        item.business.name,
+        item.business.category ?? '',
+        item.business.address ?? '',
       ]
         .join(' ')
         .toLowerCase();
@@ -381,7 +297,6 @@ export default function FavoritesScreen() {
 
   const clearSearch = useCallback(() => {
     setSearch('');
-    Keyboard.dismiss();
   }, []);
 
   const goToExplore = useCallback(() => {
@@ -389,7 +304,7 @@ export default function FavoritesScreen() {
   }, [router]);
 
   const renderItem = useCallback(
-    ({ item }: { item: FavoriteSpace }) => (
+    ({ item }: { item: FavoriteDTO }) => (
       <FavoriteCard
         item={item}
         onRemove={handleRemove}
@@ -400,7 +315,7 @@ export default function FavoritesScreen() {
   );
 
   const keyExtractor = useCallback(
-    (item: FavoriteSpace) => item.name,
+    (item: FavoriteDTO) => item.id,
     [],
   );
 
@@ -572,6 +487,19 @@ export default function FavoritesScreen() {
     ],
   );
 
+  if (loading) {
+    return (
+      <SafeAreaView
+        style={styles.safeArea}
+        edges={['top']}
+      >
+        <View style={[styles.container, styles.loadingContainer]}>
+          <Text style={styles.loadingText}>A carregar…</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView
       style={styles.safeArea}
@@ -640,6 +568,17 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F5F5F2',
+  },
+
+  loadingContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  loadingText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#777772',
   },
 
   listContent: {
@@ -789,6 +728,11 @@ const styles = StyleSheet.create({
     height: '100%',
   },
 
+  imageFallback: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
   imageOverlay: {
     position: 'absolute',
     top: 0,
@@ -852,7 +796,7 @@ const styles = StyleSheet.create({
   },
 
   mainInfo: {
-    minHeight: 66,
+    minHeight: 30,
     marginTop: 14,
     flexDirection: 'row',
     alignItems: 'center',

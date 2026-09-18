@@ -1,12 +1,13 @@
 
 import React, {
+  useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
 } from 'react';
 
 import {
+  ActivityIndicator,
   Animated,
   Easing,
   Image,
@@ -20,6 +21,12 @@ import {
 } from 'react-native';
 
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
+
+import type { BusinessDTO, SearchResultDTO, SearchSortBy } from '@slotix/types';
+import { search } from '../services/search';
+import { getCurrentCoordinates, type Coordinates } from '../services/location';
+import { useFavorites } from '../contexts/FavoritesContext';
 
 /* -------------------------------------------------------------------------- */
 /* COLORS                                                                     */
@@ -43,135 +50,18 @@ const COLORS = {
 /* TYPES                                                                      */
 /* -------------------------------------------------------------------------- */
 
-type Space = {
-  id: string;
-  name: string;
-  category: string;
-  service: string;
-  location: string;
-  rating: number;
-  reviews: number;
-  distance: number;
-  price: number;
-  image: string;
+type Filter = 'Todos' | 'Mais perto' | 'Melhor avaliados' | 'Menor preço';
+
+const FILTER_TO_SORT: Record<Filter, SearchSortBy> = {
+  Todos: 'recommended',
+  'Mais perto': 'nearest',
+  'Melhor avaliados': 'topRated',
+  'Menor preço': 'bestPrice',
 };
-
-type Filter =
-  | 'Todos'
-  | 'Mais perto'
-  | 'Melhor avaliados'
-  | 'Menor preço';
-
-/* -------------------------------------------------------------------------- */
-/* DATA                                                                       */
-/* -------------------------------------------------------------------------- */
-
-const spaces: Space[] = [
-  {
-    id: '1',
-    name: 'Barbearia Executive',
-    category: 'Barbearia',
-    service: 'Corte + Barba',
-    location: 'Alvalade',
-    rating: 4.9,
-    reviews: 128,
-    distance: 1.2,
-    price: 3500,
-    image:
-      'https://images.unsplash.com/photo-1503951914875-452162b0f3f1?auto=format&fit=crop&w=900&q=80',
-  },
-  {
-    id: '2',
-    name: 'Lumina Nails & Spa',
-    category: 'Nails',
-    service: 'Manicure Premium',
-    location: 'Talatona',
-    rating: 4.8,
-    reviews: 94,
-    distance: 2.5,
-    price: 5000,
-    image:
-      'https://images.unsplash.com/photo-1610992015732-2449b76344bc?auto=format&fit=crop&w=900&q=80',
-  },
-  {
-    id: '3',
-    name: 'The Royal Spa',
-    category: 'SPA',
-    service: 'Ritual Relax',
-    location: 'Ilha de Luanda',
-    rating: 5.0,
-    reviews: 76,
-    distance: 3.8,
-    price: 12000,
-    image:
-      'https://images.unsplash.com/photo-1540555700478-4be289fbecef?auto=format&fit=crop&w=900&q=80',
-  },
-  {
-    id: '4',
-    name: "Gentleman's Club",
-    category: 'Barbearia',
-    service: 'Corte masculino',
-    location: 'Alvalade',
-    rating: 4.9,
-    reviews: 112,
-    distance: 1.2,
-    price: 3500,
-    image:
-      'https://images.unsplash.com/photo-1599351431202-1e0f0d5c9f4e?auto=format&fit=crop&w=900&q=80',
-  },
-  {
-    id: '5',
-    name: 'Lumina Beauty Studio',
-    category: 'Salão',
-    service: 'Corte & Escova',
-    location: 'Miramar',
-    rating: 4.8,
-    reviews: 83,
-    distance: 2.0,
-    price: 6000,
-    image:
-      'https://images.unsplash.com/photo-1560066984-138dadb4c035?auto=format&fit=crop&w=900&q=80',
-  },
-  {
-    id: '6',
-    name: 'Glow Skin Studio',
-    category: 'Estética',
-    service: 'Limpeza de pele',
-    location: 'Talatona',
-    rating: 4.7,
-    reviews: 61,
-    distance: 2.9,
-    price: 7000,
-    image:
-      'https://images.unsplash.com/photo-1570172619644-dfd03ed5d881?auto=format&fit=crop&w=900&q=80',
-  },
-];
-
-const categories = [
-  'Barbearia',
-  'Salão',
-  'Nails',
-  'SPA',
-  'Estética',
-];
-
-const initialRecentSearches = [
-  'Corte masculino',
-  'Manicure',
-  'SPA',
-];
 
 /* -------------------------------------------------------------------------- */
 /* HELPERS                                                                    */
 /* -------------------------------------------------------------------------- */
-
-function normalizeText(value: string): string {
-  return value
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .trim();
-}
 
 function formatPrice(value: number): string {
   return `${value.toLocaleString('pt-AO')} Kz`;
@@ -183,16 +73,16 @@ function formatPrice(value: number): string {
 
 export default function SearchScreen() {
   const inputRef = useRef<TextInput>(null);
+  const { isFavorite, toggleFavorite } = useFavorites();
 
   const [query, setQuery] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
   const [filter, setFilter] = useState<Filter>('Todos');
-  const [focused, setFocused] = useState(false);
 
-  const [recentSearches, setRecentSearches] = useState<string[]>(
-    initialRecentSearches,
-  );
+  const [coordinates, setCoordinates] = useState<Coordinates | null>(null);
 
-  const [favorites, setFavorites] = useState<string[]>([]);
+  const [results, setResults] = useState<SearchResultDTO[]>([]);
+  const [loading, setLoading] = useState(false);
 
   const entrance = useRef(new Animated.Value(0)).current;
 
@@ -210,121 +100,96 @@ export default function SearchScreen() {
   }, [entrance]);
 
   /* ------------------------------------------------------------------------ */
+  /* DEBOUNCE                                                                 */
+  /* ------------------------------------------------------------------------ */
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedQuery(query.trim()), 400);
+    return () => clearTimeout(timer);
+  }, [query]);
+
+  /* ------------------------------------------------------------------------ */
+  /* LOCATION — requested lazily, only once "Mais perto" is actually picked   */
+  /* ------------------------------------------------------------------------ */
+
+  const ensureCoordinates = useCallback(async () => {
+    if (coordinates) return coordinates;
+    const current = await getCurrentCoordinates();
+    setCoordinates(current);
+    return current;
+  }, [coordinates]);
+
+  const selectFilter = useCallback(
+    async (next: Filter) => {
+      if (next === 'Mais perto') {
+        const current = await ensureCoordinates();
+        if (!current) {
+          setFilter('Todos');
+          return;
+        }
+      }
+
+      setFilter(next);
+    },
+    [ensureCoordinates],
+  );
+
+  /* ------------------------------------------------------------------------ */
   /* RESULTS                                                                  */
   /* ------------------------------------------------------------------------ */
 
-  const results = useMemo(() => {
-    const normalizedQuery = normalizeText(query);
+  const hasQuery = debouncedQuery.length > 0;
 
-    let filtered = [...spaces];
+  useEffect(() => {
+    let cancelled = false;
 
-    if (normalizedQuery.length > 0) {
-      filtered = spaces.filter((space) => {
-        const searchableText = normalizeText(
-          [
-            space.name,
-            space.category,
-            space.service,
-            space.location,
-          ].join(' '),
-        );
-
-        return searchableText.includes(normalizedQuery);
-      });
+    async function load() {
+      setLoading(true);
+      try {
+        const response = await search({
+          q: debouncedQuery,
+          sortBy: FILTER_TO_SORT[filter],
+          latitude: coordinates?.latitude,
+          longitude: coordinates?.longitude,
+        });
+        if (!cancelled) setResults(response.data);
+      } catch {
+        if (!cancelled) setResults([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     }
 
-    switch (filter) {
-      case 'Mais perto':
-        filtered.sort((a, b) => a.distance - b.distance);
-        break;
-
-      case 'Melhor avaliados':
-        filtered.sort((a, b) => b.rating - a.rating);
-        break;
-
-      case 'Menor preço':
-        filtered.sort((a, b) => a.price - b.price);
-        break;
+    if (hasQuery) {
+      void load();
+    } else {
+      setResults([]);
+      setLoading(false);
     }
 
-    return filtered;
-  }, [query, filter]);
-
-  const hasQuery = query.trim().length > 0;
+    return () => {
+      cancelled = true;
+    };
+  }, [debouncedQuery, filter, coordinates, hasQuery]);
 
   /* ------------------------------------------------------------------------ */
-  /* SEARCH                                                                   */
+  /* SEARCH FIELD                                                             */
   /* ------------------------------------------------------------------------ */
 
-  const executeSearch = (value: string) => {
-    const cleanValue = value.trim();
-
-    setQuery(cleanValue);
-    setFilter('Todos');
-
-    if (!cleanValue) {
-      return;
-    }
-
-    setRecentSearches((current) => {
-      const filtered = current.filter(
-        (item) =>
-          normalizeText(item) !== normalizeText(cleanValue),
-      );
-
-      return [cleanValue, ...filtered].slice(0, 5);
-    });
-  };
+  const [focused, setFocused] = useState(false);
 
   const clearSearch = () => {
     setQuery('');
-    setFilter('Todos');
-
     setTimeout(() => {
       inputRef.current?.focus();
     }, 100);
   };
 
-  const selectCategory = (category: string) => {
-    executeSearch(category);
+  const router = useRouter();
+
+  const openSpace = (business: BusinessDTO) => {
     Keyboard.dismiss();
-  };
-
-  const removeRecentSearch = (value: string) => {
-    setRecentSearches((current) =>
-      current.filter((item) => item !== value),
-    );
-  };
-
-  /* ------------------------------------------------------------------------ */
-  /* FAVORITES                                                                */
-  /* ------------------------------------------------------------------------ */
-
-  const toggleFavorite = (id: string) => {
-    setFavorites((current) => {
-      if (current.includes(id)) {
-        return current.filter((item) => item !== id);
-      }
-
-      return [...current, id];
-    });
-  };
-
-  /* ------------------------------------------------------------------------ */
-  /* OPEN SPACE                                                               */
-  /* ------------------------------------------------------------------------ */
-
-  const openSpace = (space: Space) => {
-    Keyboard.dismiss();
-
-    /*
-      A navegação para o espaço será adicionada
-      quando a página /space/[id] estiver pronta.
-
-      Por enquanto apenas colocamos o nome na pesquisa.
-    */
-
-    executeSearch(space.name);
+    router.push({ pathname: '/space', params: { businessId: business.id } } as any);
   };
 
   /* ------------------------------------------------------------------------ */
@@ -414,10 +279,7 @@ export default function SearchScreen() {
               <TextInput
                 ref={inputRef}
                 value={query}
-                onChangeText={(value) => {
-                  setQuery(value);
-                  setFilter('Todos');
-                }}
+                onChangeText={setQuery}
                 placeholder="Pesquisar espaços ou serviços"
                 placeholderTextColor={COLORS.muted}
                 style={styles.searchInput}
@@ -427,13 +289,10 @@ export default function SearchScreen() {
                 selectionColor={COLORS.black}
                 onFocus={() => setFocused(true)}
                 onBlur={() => setFocused(false)}
-                onSubmitEditing={() => {
-                  executeSearch(query);
-                  Keyboard.dismiss();
-                }}
+                onSubmitEditing={() => Keyboard.dismiss()}
               />
 
-              {hasQuery && (
+              {query.length > 0 && (
                 <Pressable
                   onPress={clearSearch}
                   hitSlop={10}
@@ -452,166 +311,9 @@ export default function SearchScreen() {
               Pesquise por serviço, espaço ou categoria
             </Text>
 
-            {/* HOME */}
-
-            {!hasQuery && (
-              <>
-                {recentSearches.length > 0 && (
-                  <View style={styles.section}>
-                    <SectionHeader
-                      title="Pesquisas recentes"
-                      subtitle="Continue de onde parou"
-                      action="Limpar"
-                      onAction={() =>
-                        setRecentSearches([])
-                      }
-                    />
-
-                    <View style={styles.recentCard}>
-                      {recentSearches.map(
-                        (search, index) => (
-                          <View
-                            key={`${search}-${index}`}
-                            style={[
-                              styles.recentRow,
-                              index ===
-                                recentSearches.length - 1 &&
-                                styles.recentRowLast,
-                            ]}
-                          >
-                            <Pressable
-                              onPress={() =>
-                                executeSearch(search)
-                              }
-                              style={styles.recentMain}
-                            >
-                              <View style={styles.recentIcon}>
-                                <View style={styles.clockOuter}>
-                                  <View
-                                    style={
-                                      styles.clockHandVertical
-                                    }
-                                  />
-                                  <View
-                                    style={
-                                      styles.clockHandHorizontal
-                                    }
-                                  />
-                                </View>
-                              </View>
-
-                              <Text style={styles.recentText}>
-                                {search}
-                              </Text>
-                            </Pressable>
-
-                            <Pressable
-                              onPress={() =>
-                                removeRecentSearch(search)
-                              }
-                              hitSlop={10}
-                              style={styles.removeRecent}
-                            >
-                              <View
-                                style={styles.removeLineOne}
-                              />
-                              <View
-                                style={styles.removeLineTwo}
-                              />
-                            </Pressable>
-                          </View>
-                        ),
-                      )}
-                    </View>
-                  </View>
-                )}
-
-                {/* CATEGORIES */}
-
-                <View style={styles.section}>
-                  <SectionHeader
-                    title="Categorias"
-                    subtitle="Escolha uma experiência"
-                  />
-
-                  <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={
-                      styles.categoryList
-                    }
-                  >
-                    {categories.map((category, index) => (
-                      <Pressable
-                        key={category}
-                        onPress={() =>
-                          selectCategory(category)
-                        }
-                        style={({ pressed }) => [
-                          styles.categoryCard,
-                          pressed &&
-                            styles.categoryCardPressed,
-                        ]}
-                      >
-                        <View
-                          style={styles.categoryVisual}
-                        >
-                          <Text
-                            style={
-                              styles.categoryNumber
-                            }
-                          >
-                            {String(index + 1).padStart(
-                              2,
-                              '0',
-                            )}
-                          </Text>
-                        </View>
-
-                        <Text
-                          style={styles.categoryText}
-                        >
-                          {category}
-                        </Text>
-                      </Pressable>
-                    ))}
-                  </ScrollView>
-                </View>
-
-                {/* FEATURED */}
-
-                <View style={styles.section}>
-                  <SectionHeader
-                    title="Selecionados para si"
-                    subtitle="Espaços de destaque"
-                    badge="03"
-                  />
-
-                  {spaces.slice(0, 3).map(
-                    (space, index) => (
-                      <SearchResultCard
-                        key={space.id}
-                        space={space}
-                        index={index}
-                        favorite={favorites.includes(
-                          space.id,
-                        )}
-                        onFavorite={() =>
-                          toggleFavorite(space.id)
-                        }
-                        onPress={() =>
-                          openSpace(space)
-                        }
-                      />
-                    ),
-                  )}
-                </View>
-              </>
-            )}
-
             {/* RESULTS */}
 
-            {hasQuery && (
+            {hasQuery ? (
               <View style={styles.resultsSection}>
                 <View style={styles.resultsHeader}>
                   <Text style={styles.resultsTitle}>
@@ -619,10 +321,13 @@ export default function SearchScreen() {
                   </Text>
 
                   <Text style={styles.resultsSubtitle}>
-                    {results.length}{' '}
-                    {results.length === 1
-                      ? 'espaço encontrado'
-                      : 'espaços encontrados'}
+                    {loading
+                      ? 'A procurar…'
+                      : `${results.length} ${
+                          results.length === 1
+                            ? 'espaço encontrado'
+                            : 'espaços encontrados'
+                        }`}
                   </Text>
                 </View>
 
@@ -636,65 +341,68 @@ export default function SearchScreen() {
                   <FilterButton
                     label="Todos"
                     active={filter === 'Todos'}
-                    onPress={() =>
-                      setFilter('Todos')
-                    }
+                    onPress={() => void selectFilter('Todos')}
                   />
 
                   <FilterButton
                     label="Mais perto"
                     active={filter === 'Mais perto'}
-                    onPress={() =>
-                      setFilter('Mais perto')
-                    }
+                    onPress={() => void selectFilter('Mais perto')}
                   />
 
                   <FilterButton
                     label="Melhor avaliados"
-                    active={
-                      filter === 'Melhor avaliados'
-                    }
-                    onPress={() =>
-                      setFilter('Melhor avaliados')
-                    }
+                    active={filter === 'Melhor avaliados'}
+                    onPress={() => void selectFilter('Melhor avaliados')}
                   />
 
                   <FilterButton
                     label="Menor preço"
-                    active={
-                      filter === 'Menor preço'
-                    }
-                    onPress={() =>
-                      setFilter('Menor preço')
-                    }
+                    active={filter === 'Menor preço'}
+                    onPress={() => void selectFilter('Menor preço')}
                   />
                 </ScrollView>
 
                 <View style={styles.resultsList}>
-                  {results.length > 0 ? (
-                    results.map((space, index) => (
+                  {loading ? (
+                    <View style={styles.loadingState}>
+                      <ActivityIndicator size="large" color={COLORS.black} />
+                    </View>
+                  ) : results.length > 0 ? (
+                    results.map((result, index) => (
                       <SearchResultCard
-                        key={space.id}
-                        space={space}
+                        key={result.business.id}
+                        result={result}
                         index={index}
-                        favorite={favorites.includes(
-                          space.id,
-                        )}
-                        onFavorite={() =>
-                          toggleFavorite(space.id)
-                        }
-                        onPress={() =>
-                          openSpace(space)
-                        }
+                        favorite={isFavorite(result.business.id)}
+                        onFavorite={() => void toggleFavorite(result.business.id)}
+                        onPress={() => openSpace(result.business)}
                       />
                     ))
                   ) : (
                     <EmptySearch
-                      query={query}
+                      query={debouncedQuery}
                       onClear={clearSearch}
                     />
                   )}
                 </View>
+              </View>
+            ) : (
+              <View style={styles.promptState}>
+                <View style={styles.promptIcon}>
+                  <View style={styles.emptySearchCircle} />
+                  <View style={styles.emptySearchHandle} />
+                </View>
+
+                <Text style={styles.promptTitle}>
+                  O que procura hoje?
+                </Text>
+
+                <Text style={styles.promptDescription}>
+                  Pesquise por um espaço, serviço ou categoria
+                  {'\n'}
+                  para ver resultados aqui.
+                </Text>
               </View>
             )}
 
@@ -703,57 +411,6 @@ export default function SearchScreen() {
         </Animated.View>
       </View>
     </SafeAreaView>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
-/* SECTION HEADER                                                             */
-/* -------------------------------------------------------------------------- */
-
-function SectionHeader({
-  title,
-  subtitle,
-  action,
-  onAction,
-  badge,
-}: {
-  title: string;
-  subtitle: string;
-  action?: string;
-  onAction?: () => void;
-  badge?: string;
-}) {
-  return (
-    <View style={styles.sectionHeader}>
-      <View style={styles.sectionHeaderText}>
-        <Text style={styles.sectionTitle}>
-          {title}
-        </Text>
-
-        <Text style={styles.sectionSubtitle}>
-          {subtitle}
-        </Text>
-      </View>
-
-      {action && onAction && (
-        <Pressable
-          onPress={onAction}
-          hitSlop={8}
-        >
-          <Text style={styles.sectionAction}>
-            {action}
-          </Text>
-        </Pressable>
-      )}
-
-      {badge && (
-        <View style={styles.sectionBadge}>
-          <Text style={styles.sectionBadgeText}>
-            {badge}
-          </Text>
-        </View>
-      )}
-    </View>
   );
 }
 
@@ -796,18 +453,20 @@ function FilterButton({
 /* -------------------------------------------------------------------------- */
 
 function SearchResultCard({
-  space,
+  result,
   favorite,
   onFavorite,
   onPress,
   index,
 }: {
-  space: Space;
+  result: SearchResultDTO;
   favorite: boolean;
   onFavorite: () => void;
   onPress: () => void;
   index: number;
 }) {
+  const { business, matchedService } = result;
+
   const animation = useRef(
     new Animated.Value(0),
   ).current;
@@ -867,32 +526,38 @@ function SearchResultCard({
             pressed && styles.resultCardPressed,
           ]}
         >
-          <Image
-            source={{ uri: space.image }}
-            style={styles.resultImage}
-          />
+          {business.imageUrl ? (
+            <Image
+              source={{ uri: business.imageUrl }}
+              style={styles.resultImage}
+            />
+          ) : (
+            <View style={[styles.resultImage, styles.resultImageFallback]} />
+          )}
 
           <View style={styles.resultContent}>
-            <View style={styles.resultCategoryRow}>
-              <View style={styles.categoryBadge}>
-                <Text style={styles.categoryBadgeText}>
-                  {space.category}
-                </Text>
+            {business.category ? (
+              <View style={styles.resultCategoryRow}>
+                <View style={styles.categoryBadge}>
+                  <Text style={styles.categoryBadgeText}>
+                    {business.category}
+                  </Text>
+                </View>
               </View>
-            </View>
+            ) : null}
 
             <Text
               style={styles.resultName}
               numberOfLines={1}
             >
-              {space.name}
+              {business.name}
             </Text>
 
             <Text
               style={styles.resultService}
               numberOfLines={1}
             >
-              {space.service}
+              {matchedService ? matchedService.name : (business.address ?? '—')}
             </Text>
 
             <View style={styles.resultMeta}>
@@ -902,30 +567,36 @@ function SearchResultCard({
                 </Text>
 
                 <Text style={styles.metaStrong}>
-                  {space.rating.toFixed(1)}
+                  {business.ratingAvg !== null ? business.ratingAvg.toFixed(1) : 'Novo'}
                 </Text>
 
                 <Text style={styles.metaMuted}>
-                  ({space.reviews})
+                  ({business.ratingCount})
                 </Text>
               </View>
 
-              <View style={styles.metaDot} />
+              {business.distanceKm !== null && (
+                <>
+                  <View style={styles.metaDot} />
 
-              <Text style={styles.metaMuted}>
-                {space.distance} km
-              </Text>
+                  <Text style={styles.metaMuted}>
+                    {business.distanceKm.toFixed(1)} km
+                  </Text>
+                </>
+              )}
             </View>
 
-            <View style={styles.priceRow}>
-              <Text style={styles.priceLabel}>
-                A partir de
-              </Text>
+            {matchedService ? (
+              <View style={styles.priceRow}>
+                <Text style={styles.priceLabel}>
+                  A partir de
+                </Text>
 
-              <Text style={styles.price}>
-                {formatPrice(space.price)}
-              </Text>
-            </View>
+                <Text style={styles.price}>
+                  {formatPrice(matchedService.price)}
+                </Text>
+              </View>
+            ) : null}
           </View>
         </Pressable>
 
@@ -1239,208 +910,107 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
 
-  section: {
-    marginTop: 34,
-  },
-
-  sectionHeader: {
-    minHeight: 43,
-    flexDirection: 'row',
+  promptState: {
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 15,
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 60,
+    paddingBottom: 40,
   },
 
-  sectionHeaderText: {
-    flex: 1,
+  promptIcon: {
+    width: 72,
+    height: 72,
+    borderRadius: 25,
+    backgroundColor: COLORS.white,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 18,
   },
 
-  sectionTitle: {
+  promptTitle: {
     fontSize: 18,
-    lineHeight: 22,
     color: COLORS.text,
     fontWeight: '900',
-    letterSpacing: -0.55,
+    letterSpacing: -0.4,
   },
 
-  sectionSubtitle: {
-    marginTop: 4,
-    fontSize: 10,
+  promptDescription: {
+    marginTop: 8,
+    fontSize: 11.5,
+    lineHeight: 19,
+    color: COLORS.muted,
+    textAlign: 'center',
+  },
+
+  resultsSection: {
+    marginTop: 30,
+  },
+
+  resultsHeader: {
+    marginBottom: 16,
+  },
+
+  resultsTitle: {
+    fontSize: 23,
+    lineHeight: 27,
+    color: COLORS.text,
+    fontWeight: '900',
+    letterSpacing: -0.7,
+  },
+
+  resultsSubtitle: {
+    marginTop: 5,
+    fontSize: 10.5,
     color: COLORS.muted,
     fontWeight: '500',
   },
 
-  sectionAction: {
-    fontSize: 10.5,
-    color: COLORS.blue,
-    fontWeight: '900',
-  },
-
-  sectionBadge: {
-    width: 32,
-    height: 32,
-    borderRadius: 11,
-    backgroundColor: COLORS.black,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  sectionBadgeText: {
-    fontSize: 9,
-    color: COLORS.white,
-    fontWeight: '900',
-  },
-
-  recentCard: {
-    borderRadius: 20,
-    overflow: 'hidden',
-    backgroundColor: 'rgba(255,255,255,0.88)',
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 5,
-    },
-    shadowOpacity: 0.025,
-    shadowRadius: 14,
-    elevation: 1,
-  },
-
-  recentRow: {
-    minHeight: 59,
-    paddingHorizontal: 13,
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
-  },
-
-  recentRowLast: {
-    borderBottomWidth: 0,
-  },
-
-  recentMain: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-
-  recentIcon: {
-    width: 35,
-    height: 35,
-    borderRadius: 12,
-    marginRight: 11,
-    backgroundColor: COLORS.soft,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  clockOuter: {
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    borderWidth: 1.5,
-    borderColor: COLORS.secondary,
-  },
-
-  clockHandVertical: {
-    position: 'absolute',
-    width: 1.3,
-    height: 5,
-    backgroundColor: COLORS.secondary,
-    left: 5.5,
-    top: 2,
-  },
-
-  clockHandHorizontal: {
-    position: 'absolute',
-    width: 4,
-    height: 1.3,
-    backgroundColor: COLORS.secondary,
-    left: 6,
-    top: 6,
-    transform: [{ rotate: '25deg' }],
-  },
-
-  recentText: {
-    fontSize: 12,
-    color: COLORS.text,
-    fontWeight: '700',
-  },
-
-  removeRecent: {
-    width: 32,
-    height: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  removeLineOne: {
-    position: 'absolute',
-    width: 10,
-    height: 1.5,
-    backgroundColor: COLORS.muted,
-    transform: [{ rotate: '45deg' }],
-  },
-
-  removeLineTwo: {
-    position: 'absolute',
-    width: 10,
-    height: 1.5,
-    backgroundColor: COLORS.muted,
-    transform: [{ rotate: '-45deg' }],
-  },
-
-  categoryList: {
+  filterList: {
     paddingRight: 20,
+    paddingBottom: 20,
   },
 
-  categoryCard: {
-    width: 94,
-    height: 105,
-    marginRight: 10,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.9)',
+  filterButton: {
+    height: 38,
+    paddingHorizontal: 13,
+    marginRight: 8,
+    borderRadius: 13,
+    backgroundColor: COLORS.white,
     borderWidth: 1,
     borderColor: COLORS.border,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    shadowOpacity: 0.025,
-    shadowRadius: 12,
-    elevation: 1,
   },
 
-  categoryCardPressed: {
+  filterButtonActive: {
+    backgroundColor: COLORS.black,
+    borderColor: COLORS.black,
+  },
+
+  filterButtonPressed: {
     transform: [{ scale: 0.96 }],
   },
 
-  categoryVisual: {
-    width: 44,
-    height: 44,
-    borderRadius: 15,
-    marginBottom: 10,
-    backgroundColor: COLORS.black,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  categoryNumber: {
-    fontSize: 11,
-    color: COLORS.white,
-    fontWeight: '900',
-    letterSpacing: 0.5,
-  },
-
-  categoryText: {
+  filterText: {
     fontSize: 10,
-    color: COLORS.text,
-    fontWeight: '900',
+    color: COLORS.secondary,
+    fontWeight: '800',
+  },
+
+  filterTextActive: {
+    color: COLORS.white,
+  },
+
+  resultsList: {
+    marginTop: 1,
+  },
+
+  loadingState: {
+    paddingVertical: 50,
+    alignItems: 'center',
   },
 
   resultWrapper: {
@@ -1476,6 +1046,11 @@ const styles = StyleSheet.create({
     height: 125,
     borderRadius: 17,
     backgroundColor: COLORS.soft,
+  },
+
+  resultImageFallback: {
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 
   resultContent: {
@@ -1655,69 +1230,6 @@ const styles = StyleSheet.create({
     transform: [{ scale: 1.02 }],
   },
 
-  resultsSection: {
-    marginTop: 34,
-  },
-
-  resultsHeader: {
-    marginBottom: 16,
-  },
-
-  resultsTitle: {
-    fontSize: 23,
-    lineHeight: 27,
-    color: COLORS.text,
-    fontWeight: '900',
-    letterSpacing: -0.7,
-  },
-
-  resultsSubtitle: {
-    marginTop: 5,
-    fontSize: 10.5,
-    color: COLORS.muted,
-    fontWeight: '500',
-  },
-
-  filterList: {
-    paddingRight: 20,
-    paddingBottom: 20,
-  },
-
-  filterButton: {
-    height: 38,
-    paddingHorizontal: 13,
-    marginRight: 8,
-    borderRadius: 13,
-    backgroundColor: COLORS.white,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  filterButtonActive: {
-    backgroundColor: COLORS.black,
-    borderColor: COLORS.black,
-  },
-
-  filterButtonPressed: {
-    transform: [{ scale: 0.96 }],
-  },
-
-  filterText: {
-    fontSize: 10,
-    color: COLORS.secondary,
-    fontWeight: '800',
-  },
-
-  filterTextActive: {
-    color: COLORS.white,
-  },
-
-  resultsList: {
-    marginTop: 1,
-  },
-
   emptyState: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -1799,4 +1311,3 @@ const styles = StyleSheet.create({
     height: 30,
   },
 });
-

@@ -1,10 +1,11 @@
 
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useRouter } from 'expo-router';
-import React, { memo, useRef, useState } from 'react';
+import React, { memo, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   Animated,
+  Image,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -14,6 +15,10 @@ import {
   Text,
   View,
 } from 'react-native';
+
+import { useAuth } from '../contexts/AuthContext';
+import { useFavorites } from '../contexts/FavoritesContext';
+import { listMyAppointments } from '../services/appointments';
 
 /* CORES */
 
@@ -207,12 +212,45 @@ function QuickAction({
 
 export default function ProfileScreen() {
   const router = useRouter();
+  const { user, logout: authLogout } = useAuth();
+  const { favorites, loading: favoritesLoading } = useFavorites();
 
   const [notificationsEnabled, setNotificationsEnabled] =
     useState(true);
 
   const [locationEnabled, setLocationEnabled] =
     useState(true);
+
+  const [appointmentCount, setAppointmentCount] =
+    useState<number | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    listMyAppointments()
+      .then((data) => {
+        if (!cancelled) setAppointmentCount(data.length);
+      })
+      .catch(() => {
+        if (!cancelled) setAppointmentCount(0);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const initials = useMemo(() => {
+    const result = (user?.name ?? '')
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((name) => name.charAt(0).toUpperCase())
+      .join('');
+
+    return result || '?';
+  }, [user?.name]);
 
   /* ROTAS */
 
@@ -255,6 +293,7 @@ export default function ProfileScreen() {
   /* LOGOUT */
 
   const logout = () => {
+    void authLogout();
     router.replace('/login');
   };
 
@@ -275,11 +314,18 @@ export default function ProfileScreen() {
 
         <View style={styles.header}>
           <View style={styles.avatarWrapper}>
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>
-                FM
-              </Text>
-            </View>
+            {user?.avatarUrl ? (
+              <Image
+                source={{ uri: user.avatarUrl }}
+                style={styles.avatarImage}
+              />
+            ) : (
+              <View style={styles.avatar}>
+                <Text style={styles.avatarText}>
+                  {initials}
+                </Text>
+              </View>
+            )}
 
             <View style={styles.verifiedBadge}>
               <Ionicons
@@ -300,18 +346,18 @@ export default function ProfileScreen() {
             </View>
 
             <Text style={styles.name}>
-              Faustino Monteiro
+              {user?.name ?? ''}
             </Text>
 
             <View style={styles.locationRow}>
               <Ionicons
-                name="location-outline"
+                name="mail-outline"
                 size={14}
                 color={COLORS.secondary}
               />
 
               <Text style={styles.location}>
-                Luanda, Angola
+                {user?.email ?? ''}
               </Text>
             </View>
           </View>
@@ -335,22 +381,15 @@ export default function ProfileScreen() {
 
         <View style={styles.statsCard}>
           <Stat
-            value="12"
+            value={appointmentCount !== null ? String(appointmentCount) : '—'}
             label="Agendas"
           />
 
           <View style={styles.statDivider} />
 
           <Stat
-            value="4"
+            value={favoritesLoading ? '—' : String(favorites.length)}
             label="Favoritos"
-          />
-
-          <View style={styles.statDivider} />
-
-          <Stat
-            value="8"
-            label="Avaliações"
           />
         </View>
 
@@ -588,6 +627,12 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.black,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+
+  avatarImage: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
   },
 
   avatarText: {

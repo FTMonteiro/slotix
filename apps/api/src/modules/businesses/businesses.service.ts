@@ -1,6 +1,7 @@
 import type { BusinessDTO, BusinessHoursEntryDTO, PaginationMeta } from "@slotix/types";
-import { AuthorizationError, NotFoundError } from "../../shared/errors";
+import { AuthorizationError, NotFoundError, ValidationError } from "../../shared/errors";
 import { haversineDistanceKm } from "../../shared/utils/geo";
+import { compareNearest, compareRecommended, compareTopRated, weightedRating } from "../../shared/utils/ranking";
 import { businessesRepository } from "./businesses.repository";
 import type { CreateBusinessInput, ListBusinessesQuery, SetBusinessHoursInput, UpdateBusinessInput } from "./businesses.schema";
 
@@ -80,6 +81,10 @@ export const businessesService = {
   },
 
   async list(query: ListBusinessesQuery): Promise<{ data: BusinessDTO[]; meta: PaginationMeta }> {
+    if (query.sortBy === "nearest" && (query.latitude === undefined || query.longitude === undefined)) {
+      throw new ValidationError("latitude e longitude são obrigatórias para ordenar por 'nearest'.", "BUSINESS_LOCATION_REQUIRED");
+    }
+
     const businesses = await businessesRepository.findManyFiltered({
       category: query.category,
       search: query.search,
@@ -96,6 +101,19 @@ export const businessesService = {
     // than silently dropped.
     if (query.radiusKm !== undefined && viewerCoords) {
       filtered = filtered.filter((dto) => dto.distanceKm === null || dto.distanceKm <= query.radiusKm!);
+    }
+
+    // Omitted: keeps findManyFiltered's own order (newest first) — existing callers see
+    // no change. Reuses the exact same comparators /search offers for the same 3 modes.
+    if (query.sortBy) {
+      const scored = filtered.map((dto) => ({
+        dto,
+        score: weightedRating(dto.ratingAvg, dto.ratingCount),
+        distanceKm: dto.distanceKm,
+        ratingCount: dto.ratingCount,
+      }));
+      const comparator = query.sortBy === "nearest" ? compareNearest : query.sortBy === "topRated" ? compareTopRated : compareRecommended;
+      filtered = scored.sort(comparator).map((entry) => entry.dto);
     }
 
     const total = filtered.length;

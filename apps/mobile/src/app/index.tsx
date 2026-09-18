@@ -1,6 +1,7 @@
 import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 
 import {
+  ActivityIndicator,
   Animated,
   Dimensions,
   Image,
@@ -19,6 +20,10 @@ import { StatusBar } from 'expo-status-bar';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+
+import type { BusinessDTO } from '@slotix/types';
+import { listBusinesses } from '../services/businesses';
+import { getCurrentCoordinates } from '../services/location';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -41,69 +46,9 @@ const HERO_SNAP = HERO_WIDTH + CARD_GAP;
 
 type IconName = keyof typeof Ionicons.glyphMap;
 
-interface Space {
-  name: string;
-  type: string;
-  location: string;
-  rating: string;
-  price: string;
-  image: string;
-  badge: string;
-  description: string;
-  distance?: string;
-}
-
-const featuredSpaces: Space[] = [
-  {
-    name: 'Lumina Beauty',
-    type: 'Beauty & Wellness',
-    location: 'Talatona, Luanda',
-    rating: '4.9',
-    price: '15.000 Kz',
-    badge: 'EXCLUSIVO',
-    description:
-      'Um espaço sofisticado para beleza, bem-estar e experiências personalizadas.',
-    image:
-      'https://images.unsplash.com/photo-1560066984-138dadb4c035?auto=format&fit=crop&w=1200&q=90',
-  },
-  {
-    name: 'The Royal Spa',
-    type: 'Spa & Wellness',
-    location: 'Ilha de Luanda',
-    rating: '5.0',
-    price: '25.000 Kz',
-    badge: 'SIGNATURE',
-    description:
-      'Uma experiência premium de relaxamento, cuidado e exclusividade.',
-    image:
-      'https://images.unsplash.com/photo-1544161515-4ab6ce6db874?auto=format&fit=crop&w=1200&q=90',
-  },
-  {
-    name: "Gentleman's Club",
-    type: 'Grooming',
-    location: 'Alvalade, Luanda',
-    rating: '4.9',
-    price: '12.000 Kz',
-    badge: 'PREMIUM',
-    description:
-      'Barbearia premium com ambiente privado e atendimento de alto padrão.',
-    image:
-      'https://images.unsplash.com/photo-1621605815971-fbc98d665033?auto=format&fit=crop&w=1200&q=90',
-  },
-  {
-    name: 'Aura Beauty',
-    type: 'Hair & Makeup',
-    location: 'Alvalade, Luanda',
-    rating: '4.8',
-    price: '18.000 Kz',
-    badge: 'SELECIONADO',
-    description:
-      'Beleza contemporânea, atendimento personalizado e resultados impecáveis.',
-    image:
-      'https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?auto=format&fit=crop&w=1200&q=90',
-  },
-];
-
+// Category chip labels are UI vocabulary for filter shortcuts, not business data — there's
+// no /categories endpoint (category is a free-text field on Business/Service), so this
+// stays client-side like any app's filter chrome.
 const categories: {
   title: string;
   icon: IconName;
@@ -115,45 +60,6 @@ const categories: {
   { title: 'Estética', icon: 'flower-outline' },
   { title: 'Makeup', icon: 'brush-outline' },
   { title: 'Massagem', icon: 'hand-left-outline' },
-];
-
-const nearbySpaces: Space[] = [
-  {
-    name: "Gentleman's Club",
-    type: 'Grooming',
-    location: 'Alvalade',
-    rating: '4.9',
-    price: '12.000 Kz',
-    badge: 'PREMIUM',
-    description: 'Barbearia premium.',
-    image:
-      'https://images.unsplash.com/photo-1621605815971-fbc98d665033?auto=format&fit=crop&w=1200&q=90',
-    distance: '1,2 km',
-  },
-  {
-    name: 'Lumina Beauty',
-    type: 'Beauty',
-    location: 'Talatona',
-    rating: '4.9',
-    price: '15.000 Kz',
-    badge: 'EXCLUSIVO',
-    description: 'Espaço sofisticado.',
-    image:
-      'https://images.unsplash.com/photo-1560066984-138dadb4c035?auto=format&fit=crop&w=1200&q=90',
-    distance: '2,4 km',
-  },
-  {
-    name: 'The Royal Spa',
-    type: 'Wellness',
-    location: 'Ilha',
-    rating: '5.0',
-    price: '25.000 Kz',
-    badge: 'SIGNATURE',
-    description: 'Experiência premium.',
-    image:
-      'https://images.unsplash.com/photo-1544161515-4ab6ce6db874?auto=format&fit=crop&w=1200&q=90',
-    distance: '4,8 km',
-  },
 ];
 
 interface GlassProps {
@@ -287,6 +193,9 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
 
   const [activeSlide, setActiveSlide] = useState(0);
+  const [featuredSpaces, setFeaturedSpaces] = useState<BusinessDTO[]>([]);
+  const [nearbySpaces, setNearbySpaces] = useState<BusinessDTO[]>([]);
+  const [loading, setLoading] = useState(true);
 
   const mainScrollY = useRef(new Animated.Value(0)).current;
   const heroScrollX = useRef(new Animated.Value(0)).current;
@@ -300,9 +209,12 @@ export default function HomeScreen() {
     [router],
   );
 
-  const goSpace = useCallback(() => {
-    router.push('/space' as any);
-  }, [router]);
+  const goSpace = useCallback(
+    (businessId: string) => {
+      router.push({ pathname: '/space', params: { businessId } } as any);
+    },
+    [router],
+  );
 
   const handleHeroEnd = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -319,10 +231,51 @@ export default function HomeScreen() {
 
       heroDragging.current = false;
     },
-    [],
+    [featuredSpaces.length],
   );
 
   useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      setLoading(true);
+
+      try {
+        const featuredResult = await listBusinesses({ sortBy: 'recommended', limit: 4 });
+        if (cancelled) return;
+        setFeaturedSpaces(featuredResult.data);
+
+        const coordinates = await getCurrentCoordinates();
+        if (cancelled) return;
+
+        if (coordinates) {
+          const nearbyResult = await listBusinesses({
+            latitude: coordinates.latitude,
+            longitude: coordinates.longitude,
+            radiusKm: 25,
+            sortBy: 'nearest',
+            limit: 3,
+          });
+          if (!cancelled) setNearbySpaces(nearbyResult.data);
+        }
+      } catch {
+        // Home just shows what it got — an empty section is a reasonable degrade here,
+        // there's no single blocking error state for a screen with several sections.
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    void load();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (featuredSpaces.length === 0) return;
+
     const timer = setInterval(() => {
       if (heroDragging.current) return;
 
@@ -342,7 +295,7 @@ export default function HomeScreen() {
     }, 5000);
 
     return () => clearInterval(timer);
-  }, []);
+  }, [featuredSpaces.length]);
 
   const introTranslate = mainScrollY.interpolate({
     inputRange: [0, 160],
@@ -393,7 +346,7 @@ export default function HomeScreen() {
             <View style={styles.topDivider} />
 
             <Pressable
-              onPress={() => go('/notifications')}
+              onPress={() => go('/perfil/notifications')}
               style={styles.topButton}
             >
               <Ionicons
@@ -417,6 +370,12 @@ export default function HomeScreen() {
             </Pressable>
           </GlassSurface>
         </View>
+
+        {loading && featuredSpaces.length === 0 && (
+          <View style={styles.loadingOverlay}>
+            <ActivityIndicator color={COLORS.black} />
+          </View>
+        )}
 
         <Animated.ScrollView
           showsVerticalScrollIndicator={false}
@@ -491,7 +450,7 @@ export default function HomeScreen() {
                 data={featuredSpaces}
                 horizontal
                 showsHorizontalScrollIndicator={false}
-                keyExtractor={(item) => item.name}
+                keyExtractor={(item) => item.id}
                 snapToInterval={HERO_SNAP}
                 decelerationRate="fast"
                 snapToAlignment="start"
@@ -523,7 +482,7 @@ export default function HomeScreen() {
                     item={item}
                     index={index}
                     scrollX={heroScrollX}
-                    onPress={goSpace}
+                    onPress={() => goSpace(item.id)}
                   />
                 )}
               />
@@ -531,7 +490,7 @@ export default function HomeScreen() {
               <View style={styles.pagination}>
                 {featuredSpaces.map((item, index) => (
                   <View
-                    key={item.name}
+                    key={item.id}
                     style={[
                       styles.dot,
                       index === activeSlide && styles.dotActive,
@@ -618,133 +577,140 @@ export default function HomeScreen() {
             </View>
           </Reveal>
 
-          <Reveal delay={400}>
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>
-                Quando o tempo importa
-              </Text>
+          {featuredSpaces[1] && (
+            <Reveal delay={400}>
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>
+                  Quando o tempo importa
+                </Text>
 
-              <Pressable
-                onPress={goSpace}
-                style={styles.experienceCard}
-              >
-                <Image
-                  source={{
-                    uri: featuredSpaces[1].image,
-                  }}
-                  style={StyleSheet.absoluteFill}
-                />
-
-                <LinearGradient
-                  colors={[
-                    'rgba(0,0,0,0)',
-                    'rgba(0,0,0,0.35)',
-                    'rgba(0,0,0,0.94)',
-                  ]}
-                  locations={[0, 0.45, 1]}
-                  style={StyleSheet.absoluteFill}
-                />
-
-                <View style={styles.experienceContent}>
-                  <View style={styles.signatureBadge}>
-                    <Ionicons
-                      name="diamond-outline"
-                      size={12}
-                      color={COLORS.white}
+                <Pressable
+                  onPress={() => goSpace(featuredSpaces[1].id)}
+                  style={styles.experienceCard}
+                >
+                  {featuredSpaces[1].imageUrl && (
+                    <Image
+                      source={{
+                        uri: featuredSpaces[1].imageUrl,
+                      }}
+                      style={StyleSheet.absoluteFill}
                     />
+                  )}
 
-                    <Text style={styles.signatureText}>
-                      SIGNATURE
-                    </Text>
-                  </View>
+                  <LinearGradient
+                    colors={[
+                      'rgba(0,0,0,0)',
+                      'rgba(0,0,0,0.35)',
+                      'rgba(0,0,0,0.94)',
+                    ]}
+                    locations={[0, 0.45, 1]}
+                    style={StyleSheet.absoluteFill}
+                  />
 
-                  <View>
-                    <Text style={styles.experienceName}>
-                      THE ROYAL SPA
-                    </Text>
+                  <View style={styles.experienceContent}>
+                    {featuredSpaces[1].category && (
+                      <View style={styles.signatureBadge}>
+                        <Ionicons
+                          name="diamond-outline"
+                          size={12}
+                          color={COLORS.white}
+                        />
 
-                    <Text style={styles.experienceTitle}>
-                      O luxo de{'\n'}desacelerar.
-                    </Text>
-
-                    <Text style={styles.experienceDescription}>
-                      Privacidade, cuidado e excelência num único
-                      lugar.
-                    </Text>
-
-                    <View style={styles.experienceBottom}>
-                      <View>
-                        <Text style={styles.priceLabel}>
-                          DESDE
-                        </Text>
-
-                        <Text style={styles.experiencePrice}>
-                          25.000 Kz
+                        <Text style={styles.signatureText}>
+                          {featuredSpaces[1].category!.toUpperCase()}
                         </Text>
                       </View>
+                    )}
 
-                      <View style={styles.experienceButton}>
-                        <Text style={styles.experienceButtonText}>
-                          Agendar
+                    <View>
+                      <Text style={styles.experienceTitle}>
+                        {featuredSpaces[1].name}
+                      </Text>
+
+                      {featuredSpaces[1].description && (
+                        <Text style={styles.experienceDescription}>
+                          {featuredSpaces[1].description}
                         </Text>
+                      )}
 
-                        <Ionicons
-                          name="arrow-forward"
-                          size={15}
-                          color={COLORS.black}
-                        />
+                      <View style={styles.experienceBottom}>
+                        <View>
+                          <Text style={styles.priceLabel}>
+                            AVALIAÇÃO
+                          </Text>
+
+                          <Text style={styles.experiencePrice}>
+                            {featuredSpaces[1].ratingAvg !== null
+                              ? `${featuredSpaces[1].ratingAvg!.toFixed(1)} ★`
+                              : 'Novo'}
+                          </Text>
+                        </View>
+
+                        <View style={styles.experienceButton}>
+                          <Text style={styles.experienceButtonText}>
+                            Agendar
+                          </Text>
+
+                          <Ionicons
+                            name="arrow-forward"
+                            size={15}
+                            color={COLORS.black}
+                          />
+                        </View>
                       </View>
                     </View>
                   </View>
-                </View>
-              </Pressable>
-            </View>
-          </Reveal>
-
-          <Reveal delay={500}>
-            <View style={styles.section}>
-              <View style={styles.sectionHeader}>
-                <View>
-                  <Text style={styles.sectionTitle}>
-                    À sua volta
-                  </Text>
-
-                  <Text style={styles.sectionSubtitle}>
-                    Lugares próximos
-                  </Text>
-                </View>
-
-                <Pressable
-                  onPress={() => go('/explore')}
-                  style={styles.viewAll}
-                >
-                  <Text style={styles.viewAllText}>
-                    Explorar
-                  </Text>
-
-                  <Ionicons
-                    name="arrow-forward"
-                    size={14}
-                    color={COLORS.black}
-                  />
                 </Pressable>
               </View>
+            </Reveal>
+          )}
 
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.nearbyList}
-              >
-                {nearbySpaces.map((item) => (
-                  <NearbyCard
-                    key={item.name}
-                    item={item}
-                    onPress={goSpace}
-                  />
-                ))}
-              </ScrollView>
-            </View>
-          </Reveal>
+          {nearbySpaces.length > 0 && (
+            <Reveal delay={500}>
+              <View style={styles.section}>
+                <View style={styles.sectionHeader}>
+                  <View>
+                    <Text style={styles.sectionTitle}>
+                      À sua volta
+                    </Text>
+
+                    <Text style={styles.sectionSubtitle}>
+                      Lugares próximos
+                    </Text>
+                  </View>
+
+                  <Pressable
+                    onPress={() => go('/explore')}
+                    style={styles.viewAll}
+                  >
+                    <Text style={styles.viewAllText}>
+                      Explorar
+                    </Text>
+
+                    <Ionicons
+                      name="arrow-forward"
+                      size={14}
+                      color={COLORS.black}
+                    />
+                  </Pressable>
+                </View>
+
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.nearbyList}
+                >
+                  {nearbySpaces.map((item) => (
+                    <NearbyCard
+                      key={item.id}
+                      item={item}
+                      onPress={() => goSpace(item.id)}
+                    />
+                  ))}
+                </ScrollView>
+              </View>
+            </Reveal>
+          )}
 
           <View style={styles.trustSection}>
             <GlassSurface style={styles.trustCard}>
@@ -786,7 +752,7 @@ function HeroCard({
   scrollX,
   onPress,
 }: {
-  item: Space;
+  item: BusinessDTO;
   index: number;
   scrollX: Animated.Value;
   onPress: () => void;
@@ -826,10 +792,16 @@ function HeroCard({
         onPress={onPress}
         style={styles.heroCard}
       >
-        <Image
-          source={{ uri: item.image }}
-          style={StyleSheet.absoluteFill}
-        />
+        {item.imageUrl ? (
+          <Image
+            source={{ uri: item.imageUrl }}
+            style={StyleSheet.absoluteFill}
+          />
+        ) : (
+          <View style={[StyleSheet.absoluteFill, styles.imageFallback]}>
+            <Ionicons name="storefront-outline" size={40} color="rgba(255,255,255,0.35)" />
+          </View>
+        )}
 
         <LinearGradient
           colors={[
@@ -842,17 +814,19 @@ function HeroCard({
         />
 
         <View style={styles.heroTop}>
-          <View style={styles.heroBadge}>
-            <Ionicons
-              name="diamond-outline"
-              size={11}
-              color={COLORS.white}
-            />
+          {item.category && (
+            <View style={styles.heroBadge}>
+              <Ionicons
+                name="diamond-outline"
+                size={11}
+                color={COLORS.white}
+              />
 
-            <Text style={styles.heroBadgeText}>
-              {item.badge}
-            </Text>
-          </View>
+              <Text style={styles.heroBadgeText}>
+                {item.category.toUpperCase()}
+              </Text>
+            </View>
+          )}
 
           <View style={styles.heroRating}>
             <Ionicons
@@ -862,44 +836,44 @@ function HeroCard({
             />
 
             <Text style={styles.heroRatingText}>
-              {item.rating}
+              {item.ratingAvg !== null ? item.ratingAvg.toFixed(1) : 'Novo'}
             </Text>
           </View>
         </View>
 
         <View style={styles.heroContent}>
-          <Text style={styles.heroType}>
-            {item.type}
-          </Text>
-
           <Text style={styles.heroTitle}>
             {item.name}
           </Text>
 
-          <View style={styles.heroLocation}>
-            <Ionicons
-              name="location-outline"
-              size={12}
-              color="rgba(255,255,255,0.75)"
-            />
+          {item.address && (
+            <View style={styles.heroLocation}>
+              <Ionicons
+                name="location-outline"
+                size={12}
+                color="rgba(255,255,255,0.75)"
+              />
 
-            <Text style={styles.heroLocationText}>
-              {item.location}
+              <Text style={styles.heroLocationText}>
+                {item.address}
+              </Text>
+            </View>
+          )}
+
+          {item.description && (
+            <Text style={styles.heroDescription} numberOfLines={2}>
+              {item.description}
             </Text>
-          </View>
-
-          <Text style={styles.heroDescription}>
-            {item.description}
-          </Text>
+          )}
 
           <View style={styles.heroFooter}>
             <View>
               <Text style={styles.priceLabel}>
-                DESDE
+                AVALIAÇÕES
               </Text>
 
               <Text style={styles.heroPrice}>
-                {item.price}
+                {item.ratingCount > 0 ? `${item.ratingCount}` : '—'}
               </Text>
             </View>
 
@@ -970,7 +944,7 @@ function NearbyCard({
   item,
   onPress,
 }: {
-  item: Space;
+  item: BusinessDTO;
   onPress: () => void;
 }) {
   return (
@@ -979,10 +953,16 @@ function NearbyCard({
       style={styles.nearbyCard}
     >
       <View style={styles.nearbyImageWrapper}>
-        <Image
-          source={{ uri: item.image }}
-          style={styles.nearbyImage}
-        />
+        {item.imageUrl ? (
+          <Image
+            source={{ uri: item.imageUrl }}
+            style={styles.nearbyImage}
+          />
+        ) : (
+          <View style={[styles.nearbyImage, styles.imageFallback]}>
+            <Ionicons name="storefront-outline" size={28} color="rgba(0,0,0,0.20)" />
+          </View>
+        )}
 
         <View style={styles.nearbyRating}>
           <Ionicons
@@ -992,15 +972,17 @@ function NearbyCard({
           />
 
           <Text style={styles.nearbyRatingText}>
-            {item.rating}
+            {item.ratingAvg !== null ? item.ratingAvg.toFixed(1) : 'Novo'}
           </Text>
         </View>
       </View>
 
       <View style={styles.nearbyInfo}>
-        <Text style={styles.nearbyType}>
-          {item.type}
-        </Text>
+        {item.category && (
+          <Text style={styles.nearbyType}>
+            {item.category}
+          </Text>
+        )}
 
         <Text
           style={styles.nearbyName}
@@ -1016,20 +998,24 @@ function NearbyCard({
             color={COLORS.muted}
           />
 
-          <Text style={styles.nearbyLocationText}>
-            {item.location}
+          <Text style={styles.nearbyLocationText} numberOfLines={1}>
+            {item.address ?? '—'}
           </Text>
 
-          <View style={styles.locationDivider} />
+          {item.distanceKm !== null && (
+            <>
+              <View style={styles.locationDivider} />
 
-          <Text style={styles.nearbyLocationText}>
-            {item.distance}
-          </Text>
+              <Text style={styles.nearbyLocationText}>
+                {item.distanceKm.toFixed(1)} km
+              </Text>
+            </>
+          )}
         </View>
 
         <View style={styles.nearbyBottom}>
           <Text style={styles.nearbyPrice}>
-            {item.price}
+            {item.ratingCount} {item.ratingCount === 1 ? 'avaliação' : 'avaliações'}
           </Text>
 
           <Ionicons
@@ -1082,6 +1068,23 @@ const styles = StyleSheet.create({
     bottom: 70,
     left: -160,
     backgroundColor: '#FFFFFF',
+  },
+
+  imageFallback: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.06)',
+  },
+
+  loadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 50,
   },
 
   glass: {

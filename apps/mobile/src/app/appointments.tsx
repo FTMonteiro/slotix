@@ -1,10 +1,13 @@
 import React, {
+  useEffect,
   useMemo,
   useRef,
   useState,
 } from 'react';
 
 import {
+  ActivityIndicator,
+  Alert,
   Animated,
   Easing,
   Modal,
@@ -18,6 +21,10 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+
+import type { AppointmentDTO, AppointmentStatus, BusinessDTO, ProfessionalDTO, ServiceDTO } from '@slotix/types';
+import { cancelAppointment, listMyAppointments } from '../services/appointments';
+import { getBusiness, getBusinessProfessionals, getBusinessServices } from '../services/businesses';
 
 const COLORS = {
   background: '#F5F6F7',
@@ -48,13 +55,7 @@ const COLORS = {
   darkBorder: '#2A2C30',
 };
 
-type AppointmentStatus =
-  | 'Confirmado'
-  | 'Pendente'
-  | 'Concluído'
-  | 'Cancelado';
-
-type Appointment = {
+type AppointmentView = {
   id: string;
   date: string;
   time: string;
@@ -64,6 +65,7 @@ type Appointment = {
   professional: string;
   duration: string;
   price: string;
+  priceValue: number;
   status: AppointmentStatus;
 };
 
@@ -72,7 +74,10 @@ type FilterType =
   | 'Confirmados'
   | 'Pendentes';
 
-const TODAY = '2026-09-03';
+const TODAY = (() => {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+})();
 
 const MONTHS = [
   'Janeiro',
@@ -99,80 +104,16 @@ const WEEK_DAYS = [
   'SÁB',
 ];
 
-const INITIAL_APPOINTMENTS: Appointment[] = [
-  {
-    id: 'apt-001',
-    date: '2026-09-03',
-    time: '11:00',
-    endTime: '12:00',
-    space: 'The Royal Spa',
-    service: 'Massagem Relaxante',
-    professional: 'Mariana Costa',
-    duration: '1h',
-    price: '12.000 Kz',
-    status: 'Pendente',
-  },
-  {
-    id: 'apt-002',
-    date: '2026-09-03',
-    time: '14:30',
-    endTime: '15:15',
-    space: 'Barbearia Executive',
-    service: 'Corte + Barba',
-    professional: 'Carlos Manuel',
-    duration: '45 min',
-    price: '8.500 Kz',
-    status: 'Confirmado',
-  },
-  {
-    id: 'apt-003',
-    date: '2026-09-03',
-    time: '17:00',
-    endTime: '18:00',
-    space: 'Lumina Nails & Spa',
-    service: 'Manicure Premium',
-    professional: 'Ana Sofia',
-    duration: '1h',
-    price: '5.000 Kz',
-    status: 'Confirmado',
-  },
-  {
-    id: 'apt-004',
-    date: '2026-09-02',
-    time: '10:00',
-    endTime: '10:45',
-    space: 'Barbearia Executive',
-    service: 'Corte + Barba',
-    professional: 'Carlos Manuel',
-    duration: '45 min',
-    price: '8.500 Kz',
-    status: 'Confirmado',
-  },
-  {
-    id: 'apt-005',
-    date: '2026-09-02',
-    time: '14:30',
-    endTime: '15:30',
-    space: 'Lumina Nails & Spa',
-    service: 'Manicure Premium',
-    professional: 'Ana Sofia',
-    duration: '1h',
-    price: '5.000 Kz',
-    status: 'Confirmado',
-  },
-  {
-    id: 'apt-006',
-    date: '2026-09-01',
-    time: '16:00',
-    endTime: '17:00',
-    space: 'The Royal Spa',
-    service: 'Facial Premium',
-    professional: 'Mariana Costa',
-    duration: '1h',
-    price: '10.000 Kz',
-    status: 'Cancelado',
-  },
-];
+function formatTimeOfDay(date: Date): string {
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+}
+
+function formatDuration(minutes: number): string {
+  if (minutes <= 0) return '—';
+  if (minutes % 60 === 0) return `${minutes / 60}h`;
+  if (minutes < 60) return `${minutes} min`;
+  return `${Math.floor(minutes / 60)}h${String(minutes % 60).padStart(2, '0')}`;
+}
 
 const FILTERS: FilterType[] = [
   'Todos',
@@ -195,14 +136,6 @@ function parseDate(date: string) {
   return new Date(`${date}T12:00:00`);
 }
 
-function formatPrice(price: string) {
-  return Number(
-    price
-      .replace(/\./g, '')
-      .replace(' Kz', ''),
-  ).toLocaleString('pt-AO');
-}
-
 function addDays(
   date: string,
   amount: number,
@@ -223,32 +156,39 @@ function getStatusConfig(
   status: AppointmentStatus,
 ) {
   switch (status) {
-    case 'Confirmado':
+    case 'CONFIRMED':
       return {
         color: COLORS.green,
         background: COLORS.greenSoft,
         icon: 'checkmark-circle-outline' as const,
       };
 
-    case 'Pendente':
+    case 'PENDING':
       return {
         color: COLORS.orange,
         background: COLORS.orangeSoft,
         icon: 'time-outline' as const,
       };
 
-    case 'Concluído':
+    case 'COMPLETED':
       return {
         color: COLORS.purple,
         background: COLORS.purpleSoft,
         icon: 'checkmark-done-outline' as const,
       };
 
-    case 'Cancelado':
+    case 'CANCELLED':
       return {
         color: COLORS.red,
         background: COLORS.redSoft,
         icon: 'close-circle-outline' as const,
+      };
+
+    case 'NO_SHOW':
+      return {
+        color: COLORS.muted,
+        background: COLORS.background,
+        icon: 'alert-circle-outline' as const,
       };
 
     default:
@@ -260,13 +200,41 @@ function getStatusConfig(
   }
 }
 
+function statusLabel(status: AppointmentStatus): string {
+  switch (status) {
+    case 'CONFIRMED':
+      return 'Confirmado';
+    case 'PENDING':
+      return 'Pendente';
+    case 'COMPLETED':
+      return 'Concluído';
+    case 'CANCELLED':
+      return 'Cancelado';
+    case 'NO_SHOW':
+      return 'Não compareceu';
+    default:
+      return status;
+  }
+}
+
 export default function AppointmentsScreen() {
   const router = useRouter();
 
-  const [appointments, setAppointments] =
-    useState<Appointment[]>(
-      INITIAL_APPOINTMENTS,
-    );
+  const [appointmentsRaw, setAppointmentsRaw] =
+    useState<AppointmentDTO[]>([]);
+
+  const [businessMap, setBusinessMap] =
+    useState<Record<string, BusinessDTO>>({});
+
+  const [serviceMap, setServiceMap] =
+    useState<Record<string, ServiceDTO>>({});
+
+  const [professionalMap, setProfessionalMap] =
+    useState<Record<string, ProfessionalDTO>>({});
+
+  const [loading, setLoading] = useState(true);
+
+  const [cancelling, setCancelling] = useState(false);
 
   const [selectedDate, setSelectedDate] =
     useState(TODAY);
@@ -274,8 +242,8 @@ export default function AppointmentsScreen() {
   const [activeFilter, setActiveFilter] =
     useState<FilterType>('Todos');
 
-  const [selectedAppointment, setSelectedAppointment] =
-    useState<Appointment | null>(null);
+  const [selectedAppointmentId, setSelectedAppointmentId] =
+    useState<string | null>(null);
 
   const [detailsVisible, setDetailsVisible] =
     useState(false);
@@ -284,14 +252,121 @@ export default function AppointmentsScreen() {
     useState(false);
 
   const [calendarMonth, setCalendarMonth] =
-    useState(8);
+    useState(() => new Date().getMonth());
 
   const [calendarYear, setCalendarYear] =
-    useState(2026);
+    useState(() => new Date().getFullYear());
 
   const calendarAnimation = useRef(
     new Animated.Value(0),
   ).current;
+
+  // Only the business is embedded on the DTO — service/professional names come from
+  // the same business, so one batch of per-business lookups (not one per appointment)
+  // covers space, service and professional display data.
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      setLoading(true);
+
+      try {
+        const data = await listMyAppointments();
+        if (cancelled) return;
+        setAppointmentsRaw(data);
+
+        const uniqueBusinessIds = [
+          ...new Set(data.map((appointment) => appointment.businessId)),
+        ];
+
+        const details = await Promise.all(
+          uniqueBusinessIds.map(async (businessId) => {
+            const [business, services, professionals] = await Promise.all([
+              getBusiness(businessId),
+              getBusinessServices(businessId),
+              getBusinessProfessionals(businessId),
+            ]);
+
+            return { businessId, business, services, professionals };
+          }),
+        );
+
+        if (cancelled) return;
+
+        const nextBusinessMap: Record<string, BusinessDTO> = {};
+        const nextServiceMap: Record<string, ServiceDTO> = {};
+        const nextProfessionalMap: Record<string, ProfessionalDTO> = {};
+
+        for (const detail of details) {
+          nextBusinessMap[detail.businessId] = detail.business;
+
+          for (const service of detail.services) {
+            nextServiceMap[service.id] = service;
+          }
+
+          for (const professional of detail.professionals) {
+            nextProfessionalMap[professional.id] = professional;
+          }
+        }
+
+        setBusinessMap(nextBusinessMap);
+        setServiceMap(nextServiceMap);
+        setProfessionalMap(nextProfessionalMap);
+      } catch {
+        if (!cancelled) setAppointmentsRaw([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    void load();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const appointments: AppointmentView[] = useMemo(
+    () =>
+      appointmentsRaw.map((appointment) => {
+        const business = businessMap[appointment.businessId];
+        const service = serviceMap[appointment.serviceId];
+        const professional = professionalMap[appointment.professionalId];
+
+        const scheduledAt = new Date(appointment.scheduledAt);
+        const durationMinutes = service?.duration ?? 0;
+        const endAt = new Date(
+          scheduledAt.getTime() + durationMinutes * 60000,
+        );
+
+        return {
+          id: appointment.id,
+          date: formatDate(
+            scheduledAt.getFullYear(),
+            scheduledAt.getMonth(),
+            scheduledAt.getDate(),
+          ),
+          time: formatTimeOfDay(scheduledAt),
+          endTime: formatTimeOfDay(endAt),
+          space: business?.name ?? 'Espaço',
+          service: service?.name ?? 'Serviço',
+          professional: professional?.name ?? 'Profissional',
+          duration: formatDuration(durationMinutes),
+          price: `${appointment.price.toLocaleString('pt-AO')} Kz`,
+          priceValue: appointment.price,
+          status: appointment.status,
+        };
+      }),
+    [appointmentsRaw, businessMap, serviceMap, professionalMap],
+  );
+
+  const selectedAppointment = useMemo(
+    () =>
+      appointments.find(
+        (appointment) => appointment.id === selectedAppointmentId,
+      ) ?? null,
+    [appointments, selectedAppointmentId],
+  );
 
   const selectedDateObject =
     parseDate(selectedDate);
@@ -325,8 +400,8 @@ export default function AppointmentsScreen() {
       (appointment) =>
         appointment.status ===
         (activeFilter === 'Confirmados'
-          ? 'Confirmado'
-          : 'Pendente'),
+          ? 'CONFIRMED'
+          : 'PENDING'),
     );
   }, [
     activeFilter,
@@ -337,9 +412,9 @@ export default function AppointmentsScreen() {
     return dayAppointments.find(
       (appointment) =>
         appointment.status ===
-          'Confirmado' ||
+          'CONFIRMED' ||
         appointment.status ===
-          'Pendente',
+          'PENDING',
     );
   }, [dayAppointments]);
 
@@ -347,25 +422,20 @@ export default function AppointmentsScreen() {
     dayAppointments.filter(
       (appointment) =>
         appointment.status ===
-        'Confirmado',
+        'CONFIRMED',
     ).length;
 
   const pendingCount =
     dayAppointments.filter(
       (appointment) =>
         appointment.status ===
-        'Pendente',
+        'PENDING',
     ).length;
 
   const totalRevenue =
     dayAppointments.reduce(
       (total, appointment) =>
-        total +
-        Number(
-          appointment.price
-            .replace(/\./g, '')
-            .replace(' Kz', ''),
-        ),
+        total + appointment.priceValue,
       0,
     );
 
@@ -435,10 +505,10 @@ export default function AppointmentsScreen() {
   };
 
   const openAppointment = (
-    appointment: Appointment,
+    appointment: AppointmentView,
   ) => {
-    setSelectedAppointment(
-      appointment,
+    setSelectedAppointmentId(
+      appointment.id,
     );
     setDetailsVisible(true);
   };
@@ -447,28 +517,68 @@ export default function AppointmentsScreen() {
     setDetailsVisible(false);
   };
 
-  const cancelAppointment = () => {
-    if (!selectedAppointment) {
+  const handleCancel = async () => {
+    if (!selectedAppointment || cancelling) {
       return;
     }
 
-    setAppointments((current) =>
-      current.map((appointment) =>
-        appointment.id ===
-        selectedAppointment.id
-          ? {
-              ...appointment,
-              status: 'Cancelado',
-            }
-          : appointment,
-      ),
-    );
+    setCancelling(true);
 
-    setSelectedAppointment({
-      ...selectedAppointment,
-      status: 'Cancelado',
-    });
+    try {
+      const updated = await cancelAppointment(selectedAppointment.id);
+
+      setAppointmentsRaw((current) =>
+        current.map((appointment) =>
+          appointment.id === updated.id ? updated : appointment,
+        ),
+      );
+    } catch {
+      Alert.alert(
+        'Erro',
+        'Não foi possível cancelar o agendamento.',
+      );
+    } finally {
+      setCancelling(false);
+    }
   };
+
+  if (loading) {
+    return (
+      <SafeAreaView
+        style={styles.safeArea}
+        edges={['top']}
+      >
+        <View
+          style={[
+            styles.container,
+            { alignItems: 'center', justifyContent: 'center' },
+          ]}
+        >
+          <ActivityIndicator
+            size="large"
+            color={COLORS.black}
+          />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (appointments.length === 0) {
+    return (
+      <SafeAreaView
+        style={styles.safeArea}
+        edges={['top']}
+      >
+        <View style={styles.container}>
+          <EmptyState
+            title="Nenhum agendamento ainda"
+            text="Ainda não tens compromissos marcados. Explora espaços e reserva o teu primeiro horário."
+            onPress={handleNewAppointment}
+          />
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView
@@ -1097,7 +1207,7 @@ export default function AppointmentsScreen() {
           }
           onClose={closeDetails}
           onCancel={
-            cancelAppointment
+            handleCancel
           }
           onReschedule={() => {
             closeDetails();
@@ -1185,7 +1295,7 @@ function NextAppointmentCard({
   appointment,
   onPress,
 }: {
-  appointment: Appointment;
+  appointment: AppointmentView;
   onPress: () => void;
 }) {
   const animation = useRef(
@@ -1286,7 +1396,7 @@ function NextAppointmentCard({
                 },
               ]}
             >
-              {appointment.status}
+              {statusLabel(appointment.status)}
             </Text>
           </View>
         </View>
@@ -1368,7 +1478,7 @@ function TimelineAppointment({
   last,
   onPress,
 }: {
-  appointment: Appointment;
+  appointment: AppointmentView;
   last: boolean;
   onPress: () => void;
 }) {
@@ -1492,7 +1602,7 @@ function TimelineAppointment({
                   },
                 ]}
               >
-                {appointment.status}
+                {statusLabel(appointment.status)}
               </Text>
             </View>
 
@@ -1587,8 +1697,12 @@ function TimelineAppointment({
 
 function EmptyState({
   onPress,
+  title = 'Dia livre',
+  text = 'Não tens compromissos neste dia. Explora espaços e encontra algo especial para reservar.',
 }: {
   onPress: () => void;
+  title?: string;
+  text?: string;
 }) {
   return (
     <View style={styles.emptyState}>
@@ -1605,15 +1719,13 @@ function EmptyState({
       <Text
         style={styles.emptyTitle}
       >
-        Dia livre
+        {title}
       </Text>
 
       <Text
         style={styles.emptyText}
       >
-        Não tens compromissos neste dia.
-        Explora espaços e encontra algo
-        especial para reservar.
+        {text}
       </Text>
 
       <Pressable
@@ -1652,7 +1764,7 @@ function AppointmentDetailsModal({
   onReschedule,
 }: {
   visible: boolean;
-  appointment: Appointment | null;
+  appointment: AppointmentView | null;
   onClose: () => void;
   onCancel: () => void;
   onReschedule: () => void;
@@ -1666,10 +1778,9 @@ function AppointmentDetailsModal({
   );
 
   const canManage =
-    appointment.status !==
-      'Cancelado' &&
-    appointment.status !==
-      'Concluído';
+    appointment.status !== 'CANCELLED' &&
+    appointment.status !== 'COMPLETED' &&
+    appointment.status !== 'NO_SHOW';
 
   return (
     <Modal
@@ -1777,7 +1888,7 @@ function AppointmentDetailsModal({
                   },
                 ]}
               >
-                {appointment.status}
+                {statusLabel(appointment.status)}
               </Text>
             </View>
           </View>
@@ -1978,7 +2089,7 @@ function CalendarModal({
   selectedDate: string;
   month: number;
   year: number;
-  appointments: Appointment[];
+  appointments: AppointmentView[];
   animation: Animated.Value;
   onClose: () => void;
   onSelect: (date: string) => void;

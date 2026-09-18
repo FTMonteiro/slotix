@@ -1,6 +1,6 @@
 import type { MatchedServiceDTO, PaginationMeta, SearchResultDTO } from "@slotix/types";
 import { ValidationError } from "../../shared/errors";
-import { weightedRating } from "../../shared/utils/ranking";
+import { compareNearest, compareRecommended, compareTopRated, weightedRating } from "../../shared/utils/ranking";
 import { countMatchingWords, splitSearchWords } from "../../shared/utils/textMatch";
 import { toBusinessDTO, type Coordinates } from "../businesses";
 import { searchRepository } from "./search.repository";
@@ -34,46 +34,35 @@ function pickMatchedService(words: string[], services: ServiceLike[]): MatchedSe
   return { id: best.id, name: best.name, price: best.price.toNumber() };
 }
 
-function distanceOrInfinity(result: SearchResultDTO): number {
-  return result.business.distanceKm ?? Infinity;
-}
-
 function priceOrInfinity(result: SearchResultDTO): number {
   return result.matchedService?.price ?? Infinity;
 }
 
 // Each mode sorts by exactly the one dimension its name promises — no hidden blending —
-// so results stay predictable. "recommended" is the only one that combines signals
-// (rating, then distance, then review count as tie-breakers), since "the best overall
-// pick" is inherently a blend; the other three are single-dimension by design.
+// so results stay predictable. "recommended"/"nearest"/"topRated" reuse the exact same
+// comparators `businesses.list` offers (shared/utils/ranking.ts); "bestPrice" is
+// search-only, since it depends on the matchedService concept.
 function sortResults(results: SearchResultDTO[], sortBy: SearchQueryInput["sortBy"]): SearchResultDTO[] {
   const scored = results.map((result) => ({
     result,
     score: weightedRating(result.business.ratingAvg, result.business.ratingCount),
+    distanceKm: result.business.distanceKm,
+    ratingCount: result.business.ratingCount,
   }));
 
   switch (sortBy) {
     case "nearest":
-      return scored.sort((a, b) => distanceOrInfinity(a.result) - distanceOrInfinity(b.result)).map((entry) => entry.result);
+      return scored.sort(compareNearest).map((entry) => entry.result);
 
     case "bestPrice":
       return scored.sort((a, b) => priceOrInfinity(a.result) - priceOrInfinity(b.result)).map((entry) => entry.result);
 
     case "topRated":
-      return scored
-        .sort((a, b) => b.score - a.score || b.result.business.ratingCount - a.result.business.ratingCount)
-        .map((entry) => entry.result);
+      return scored.sort(compareTopRated).map((entry) => entry.result);
 
     case "recommended":
     default:
-      return scored
-        .sort(
-          (a, b) =>
-            b.score - a.score ||
-            distanceOrInfinity(a.result) - distanceOrInfinity(b.result) ||
-            b.result.business.ratingCount - a.result.business.ratingCount,
-        )
-        .map((entry) => entry.result);
+      return scored.sort(compareRecommended).map((entry) => entry.result);
   }
 }
 

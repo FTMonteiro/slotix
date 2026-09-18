@@ -36,7 +36,13 @@
       "expo-font",
       "expo-image",
       "expo-status-bar",
-      "expo-web-browser"
+      "expo-web-browser",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "O SLOTIX usa a sua localização para mostrar espaços perto de si e ordenar os resultados por distância."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

@@ -1,5 +1,6 @@
-import React, { useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Animated,
   Easing,
   Pressable,
@@ -11,15 +12,131 @@ import {
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
+import type { BusinessDTO, ProfessionalDTO, ServiceDTO } from '@slotix/types';
+import {
+  getBusiness,
+  getBusinessProfessionals,
+  getBusinessServices,
+} from '../../services/businesses';
+import { createAppointment } from '../../services/appointments';
+import { ApiRequestError } from '../../services/api-client';
+
+const formatPrice = (value: number) => `${value.toLocaleString('pt-AO')} Kz`;
+
+const capitalize = (value: string) =>
+  value.length > 0 ? value.charAt(0).toUpperCase() + value.slice(1) : value;
+
 export default function BookingConfirmationScreen() {
+  const router = useRouter();
+
+  const params = useLocalSearchParams<{
+    businessId?: string | string[];
+    serviceId?: string | string[];
+    professionalId?: string | string[];
+    scheduledAt?: string | string[];
+  }>();
+
+  const businessId = Array.isArray(params.businessId)
+    ? params.businessId[0]
+    : params.businessId;
+
+  const serviceId = Array.isArray(params.serviceId)
+    ? params.serviceId[0]
+    : params.serviceId;
+
+  const professionalId = Array.isArray(params.professionalId)
+    ? params.professionalId[0]
+    : params.professionalId;
+
+  const scheduledAt = Array.isArray(params.scheduledAt)
+    ? params.scheduledAt[0]
+    : params.scheduledAt;
+
+  const [business, setBusiness] = useState<BusinessDTO | null>(null);
+  const [service, setService] = useState<ServiceDTO | null>(null);
+  const [professional, setProfessional] = useState<ProfessionalDTO | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+
+  const [submitting, setSubmitting] = useState(false);
+  const [submitErrorCode, setSubmitErrorCode] = useState<string | null>(null);
+  const [submitErrorMessage, setSubmitErrorMessage] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState(false);
 
   const buttonScale = useRef(new Animated.Value(1)).current;
   const successScale = useRef(new Animated.Value(0.82)).current;
   const successOpacity = useRef(new Animated.Value(0)).current;
+
+  const hasRequiredParams = Boolean(
+    businessId && serviceId && professionalId && scheduledAt,
+  );
+
+  useEffect(() => {
+    if (!hasRequiredParams) {
+      setLoading(false);
+      setError(true);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function load() {
+      setLoading(true);
+      setError(false);
+
+      try {
+        const [businessData, services, professionals] = await Promise.all([
+          getBusiness(businessId as string),
+          getBusinessServices(businessId as string),
+          getBusinessProfessionals(businessId as string),
+        ]);
+
+        if (cancelled) return;
+
+        setBusiness(businessData);
+        setService(services.find((item) => item.id === serviceId) ?? null);
+        setProfessional(
+          professionals.find((item) => item.id === professionalId) ?? null,
+        );
+      } catch {
+        if (!cancelled) setError(true);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    void load();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [hasRequiredParams, businessId, serviceId, professionalId]);
+
+  const scheduledDate = useMemo(
+    () => (scheduledAt ? new Date(scheduledAt) : null),
+    [scheduledAt],
+  );
+
+  const formattedDate = scheduledDate
+    ? capitalize(
+        new Intl.DateTimeFormat('pt-AO', {
+          weekday: 'long',
+          day: 'numeric',
+          month: 'long',
+        }).format(scheduledDate),
+      )
+    : '—';
+
+  const formattedTime = scheduledDate
+    ? new Intl.DateTimeFormat('pt-AO', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      }).format(scheduledDate)
+    : '—';
 
   const animateButton = () => {
     Animated.sequence([
@@ -38,14 +155,31 @@ export default function BookingConfirmationScreen() {
     ]).start();
   };
 
-  const handleConfirm = () => {
-    if (confirmed) {
+  const handleConfirm = useCallback(async () => {
+    if (
+      submitting ||
+      confirmed ||
+      !businessId ||
+      !serviceId ||
+      !professionalId ||
+      !scheduledAt
+    ) {
       return;
     }
 
     animateButton();
+    setSubmitErrorCode(null);
+    setSubmitErrorMessage(null);
+    setSubmitting(true);
 
-    setTimeout(() => {
+    try {
+      await createAppointment({
+        businessId,
+        serviceId,
+        professionalId,
+        scheduledAt,
+      });
+
       setConfirmed(true);
 
       successScale.setValue(0.82);
@@ -65,8 +199,70 @@ export default function BookingConfirmationScreen() {
           useNativeDriver: true,
         }),
       ]).start();
-    }, 180);
-  };
+    } catch (err) {
+      if (err instanceof ApiRequestError) {
+        setSubmitErrorCode(err.code);
+        setSubmitErrorMessage(err.message);
+      } else {
+        setSubmitErrorCode(null);
+        setSubmitErrorMessage('Ocorreu um erro ao confirmar a reserva. Tente novamente.');
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  }, [
+    submitting,
+    confirmed,
+    businessId,
+    serviceId,
+    professionalId,
+    scheduledAt,
+    successScale,
+    successOpacity,
+  ]);
+
+  const handlePickAnotherTime = useCallback(() => {
+    if (!businessId || !serviceId || !professionalId) return;
+
+    router.push({
+      pathname: '/booking/date',
+      params: { businessId, serviceId, professionalId },
+    });
+  }, [router, businessId, serviceId, professionalId]);
+
+  const handleBack = useCallback(() => {
+    router.back();
+  }, [router]);
+
+  if (loading) {
+    return (
+      <View style={styles.container}>
+        <SafeAreaView style={styles.safeArea} edges={['top']}>
+          <View style={styles.centerState}>
+            <ActivityIndicator color="#111111" />
+          </View>
+        </SafeAreaView>
+      </View>
+    );
+  }
+
+  if (error || !business || !service || !professional || !scheduledDate) {
+    return (
+      <View style={styles.container}>
+        <SafeAreaView style={styles.safeArea} edges={['top']}>
+          <View style={styles.centerState}>
+            <Text style={styles.errorTitle}>
+              Não foi possível carregar esta reserva
+            </Text>
+
+            <Pressable onPress={handleBack} style={styles.errorButton}>
+              <Text style={styles.errorButtonText}>Voltar</Text>
+            </Pressable>
+          </View>
+        </SafeAreaView>
+      </View>
+    );
+  }
 
   if (confirmed) {
     return (
@@ -91,25 +287,16 @@ export default function BookingConfirmationScreen() {
                 colors={['#111111', '#343434']}
                 style={styles.successIcon}
               >
-                <Ionicons
-                  name="checkmark"
-                  size={42}
-                  color="#FFFFFF"
-                />
+                <Ionicons name="checkmark" size={42} color="#FFFFFF" />
               </LinearGradient>
             </View>
 
-            <Text style={styles.successEyebrow}>
-              AGENDAMENTO CONFIRMADO
-            </Text>
-
-            <Text style={styles.successTitle}>
-              Está tudo pronto.
-            </Text>
+            <Text style={styles.successEyebrow}>AGENDAMENTO CONFIRMADO</Text>
+            <Text style={styles.successTitle}>Está tudo pronto.</Text>
 
             <Text style={styles.successDescription}>
-              O seu horário foi reservado com sucesso. Estamos
-              esperando por si no Gentleman&apos;s Club.
+              O seu horário foi reservado com sucesso. Estamos à sua espera
+              em {business.name}.
             </Text>
 
             <View style={styles.successBookingCard}>
@@ -119,7 +306,7 @@ export default function BookingConfirmationScreen() {
                     SEU AGENDAMENTO
                   </Text>
                   <Text style={styles.successBookingTitle}>
-                    Gentleman&apos;s Club
+                    {business.name}
                   </Text>
                 </View>
 
@@ -129,9 +316,7 @@ export default function BookingConfirmationScreen() {
                     size={15}
                     color="#111111"
                   />
-                  <Text style={styles.confirmedBadgeText}>
-                    Confirmado
-                  </Text>
+                  <Text style={styles.confirmedBadgeText}>Confirmado</Text>
                 </View>
               </View>
 
@@ -139,53 +324,37 @@ export default function BookingConfirmationScreen() {
 
               <View style={styles.successInfoRow}>
                 <View style={styles.successInfoIcon}>
-                  <Ionicons
-                    name="calendar-outline"
-                    size={17}
-                    color="#111111"
-                  />
+                  <Ionicons name="calendar-outline" size={17} color="#111111" />
                 </View>
 
                 <View>
                   <Text style={styles.successInfoLabel}>DATA</Text>
-                  <Text style={styles.successInfoValue}>
-                    Sexta-feira, 4 de Setembro
-                  </Text>
+                  <Text style={styles.successInfoValue}>{formattedDate}</Text>
                 </View>
               </View>
 
               <View style={styles.successInfoRow}>
                 <View style={styles.successInfoIcon}>
-                  <Ionicons
-                    name="time-outline"
-                    size={17}
-                    color="#111111"
-                  />
+                  <Ionicons name="time-outline" size={17} color="#111111" />
                 </View>
 
                 <View>
                   <Text style={styles.successInfoLabel}>HORÁRIO</Text>
                   <Text style={styles.successInfoValue}>
-                    14:30 · 45 min
+                    {formattedTime} · {service.duration} min
                   </Text>
                 </View>
               </View>
 
               <View style={styles.successInfoRow}>
                 <View style={styles.successInfoIcon}>
-                  <Ionicons
-                    name="person-outline"
-                    size={17}
-                    color="#111111"
-                  />
+                  <Ionicons name="person-outline" size={17} color="#111111" />
                 </View>
 
                 <View>
-                  <Text style={styles.successInfoLabel}>
-                    PROFISSIONAL
-                  </Text>
+                  <Text style={styles.successInfoLabel}>PROFISSIONAL</Text>
                   <Text style={styles.successInfoValue}>
-                    Daniel Monteiro
+                    {professional.name}
                   </Text>
                 </View>
               </View>
@@ -202,11 +371,7 @@ export default function BookingConfirmationScreen() {
                 Ver meus agendamentos
               </Text>
 
-              <Ionicons
-                name="arrow-forward"
-                size={18}
-                color="#FFFFFF"
-              />
+              <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
             </Pressable>
 
             <Pressable
@@ -216,9 +381,7 @@ export default function BookingConfirmationScreen() {
                 pressed && styles.pressed,
               ]}
             >
-              <Text style={styles.homeButtonText}>
-                Voltar para o início
-              </Text>
+              <Text style={styles.homeButtonText}>Voltar para o início</Text>
             </Pressable>
           </Animated.View>
         </SafeAreaView>
@@ -241,17 +404,13 @@ export default function BookingConfirmationScreen() {
           {/* HEADER */}
           <View style={styles.header}>
             <Pressable
-              onPress={() => router.back()}
+              onPress={handleBack}
               style={({ pressed }) => [
                 styles.headerButton,
                 pressed && styles.pressed,
               ]}
             >
-              <Ionicons
-                name="chevron-back"
-                size={21}
-                color="#111111"
-              />
+              <Ionicons name="chevron-back" size={21} color="#111111" />
             </Pressable>
 
             <View style={styles.headerCenter}>
@@ -272,9 +431,7 @@ export default function BookingConfirmationScreen() {
 
             <View style={styles.progressLabels}>
               <Text style={styles.progressInactive}>Serviço</Text>
-              <Text style={styles.progressInactive}>
-                Profissional
-              </Text>
+              <Text style={styles.progressInactive}>Profissional</Text>
               <Text style={styles.progressInactive}>Data</Text>
               <Text style={styles.progressActive}>Confirmar</Text>
             </View>
@@ -287,25 +444,16 @@ export default function BookingConfirmationScreen() {
                 colors={['#111111', '#333333']}
                 style={styles.heroIconGradient}
               >
-                <Ionicons
-                  name="checkmark-done"
-                  size={27}
-                  color="#FFFFFF"
-                />
+                <Ionicons name="checkmark-done" size={27} color="#FFFFFF" />
               </LinearGradient>
             </View>
 
-            <Text style={styles.heroEyebrow}>
-              QUASE TERMINADO
-            </Text>
-
-            <Text style={styles.heroTitle}>
-              Revise os detalhes
-            </Text>
+            <Text style={styles.heroEyebrow}>QUASE TERMINADO</Text>
+            <Text style={styles.heroTitle}>Revise os detalhes</Text>
 
             <Text style={styles.heroDescription}>
-              Confirme se todas as informações estão corretas antes
-              de finalizar o seu agendamento.
+              Confirme se todas as informações estão corretas antes de
+              finalizar o seu agendamento.
             </Text>
           </View>
 
@@ -318,42 +466,38 @@ export default function BookingConfirmationScreen() {
               />
 
               <View style={styles.spaceImageContent}>
-                <Text style={styles.spaceImageBrand}>
-                  GENTLEMAN&apos;S
-                </Text>
-                <Text style={styles.spaceImageBrandSmall}>
-                  CLUB
+                <Text style={styles.spaceImageBrand} numberOfLines={1}>
+                  {business.name.toUpperCase()}
                 </Text>
               </View>
 
-              <View style={styles.ratingBadge}>
-                <Ionicons
-                  name="star"
-                  size={12}
-                  color="#FFFFFF"
-                />
-                <Text style={styles.ratingText}>4.9</Text>
-              </View>
+              {business.ratingAvg !== null ? (
+                <View style={styles.ratingBadge}>
+                  <Ionicons name="star" size={12} color="#FFFFFF" />
+                  <Text style={styles.ratingText}>
+                    {business.ratingAvg.toFixed(1)}
+                  </Text>
+                </View>
+              ) : null}
             </View>
 
             <View style={styles.spaceInfo}>
               <Text style={styles.spaceLabel}>ESPAÇO</Text>
+              <Text style={styles.spaceTitle}>{business.name}</Text>
 
-              <Text style={styles.spaceTitle}>
-                Gentleman&apos;s Club
-              </Text>
+              {business.address || business.category ? (
+                <View style={styles.locationRow}>
+                  <Ionicons
+                    name="location-outline"
+                    size={14}
+                    color="#777773"
+                  />
 
-              <View style={styles.locationRow}>
-                <Ionicons
-                  name="location-outline"
-                  size={14}
-                  color="#777773"
-                />
-
-                <Text style={styles.locationText}>
-                  Talatona, Luanda
-                </Text>
-              </View>
+                  <Text style={styles.locationText}>
+                    {business.address ?? business.category}
+                  </Text>
+                </View>
+              ) : null}
             </View>
           </View>
 
@@ -362,9 +506,7 @@ export default function BookingConfirmationScreen() {
             <View style={styles.cardHeader}>
               <View>
                 <Text style={styles.cardEyebrow}>RESUMO</Text>
-                <Text style={styles.cardTitle}>
-                  Seu agendamento
-                </Text>
+                <Text style={styles.cardTitle}>Seu agendamento</Text>
               </View>
 
               <View style={styles.lockIcon}>
@@ -378,92 +520,69 @@ export default function BookingConfirmationScreen() {
 
             <View style={styles.divider} />
 
-            {/* SERVICE */}
             <View style={styles.detailRow}>
               <View style={styles.detailIcon}>
-                <Ionicons
-                  name="cut-outline"
-                  size={19}
-                  color="#111111"
-                />
+                <Ionicons name="cut-outline" size={19} color="#111111" />
               </View>
 
               <View style={styles.detailContent}>
                 <Text style={styles.detailLabel}>SERVIÇO</Text>
-                <Text style={styles.detailValue}>
-                  Corte Premium
-                </Text>
+                <Text style={styles.detailValue}>{service.name}</Text>
                 <Text style={styles.detailMeta}>
-                  45 minutos
+                  {service.duration} minutos
                 </Text>
               </View>
 
               <Text style={styles.detailPrice}>
-                12.000 Kz
+                {formatPrice(service.price)}
               </Text>
             </View>
 
-            {/* PROFESSIONAL */}
             <View style={styles.detailRow}>
               <View style={styles.detailIcon}>
-                <Ionicons
-                  name="person-outline"
-                  size={19}
-                  color="#111111"
-                />
+                <Ionicons name="person-outline" size={19} color="#111111" />
               </View>
 
               <View style={styles.detailContent}>
-                <Text style={styles.detailLabel}>
-                  PROFISSIONAL
-                </Text>
-                <Text style={styles.detailValue}>
-                  Daniel Monteiro
-                </Text>
-                <Text style={styles.detailMeta}>
-                  Master Barber · ★ 4.9
-                </Text>
+                <Text style={styles.detailLabel}>PROFISSIONAL</Text>
+                <Text style={styles.detailValue}>{professional.name}</Text>
+
+                {professional.specialty || professional.ratingAvg !== null ? (
+                  <Text style={styles.detailMeta}>
+                    {[
+                      professional.specialty,
+                      professional.ratingAvg !== null
+                        ? `★ ${professional.ratingAvg.toFixed(1)}`
+                        : null,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </Text>
+                ) : null}
               </View>
             </View>
 
-            {/* DATE */}
             <View style={styles.detailRow}>
               <View style={styles.detailIcon}>
-                <Ionicons
-                  name="calendar-outline"
-                  size={19}
-                  color="#111111"
-                />
+                <Ionicons name="calendar-outline" size={19} color="#111111" />
               </View>
 
               <View style={styles.detailContent}>
                 <Text style={styles.detailLabel}>DATA</Text>
-                <Text style={styles.detailValue}>
-                  Sexta-feira, 4 de Setembro
-                </Text>
-                <Text style={styles.detailMeta}>
-                  Setembro de 2026
-                </Text>
+                <Text style={styles.detailValue}>{formattedDate}</Text>
               </View>
             </View>
 
-            {/* TIME */}
             <View style={styles.detailRowLast}>
               <View style={styles.detailIcon}>
-                <Ionicons
-                  name="time-outline"
-                  size={19}
-                  color="#111111"
-                />
+                <Ionicons name="time-outline" size={19} color="#111111" />
               </View>
 
               <View style={styles.detailContent}>
                 <Text style={styles.detailLabel}>HORÁRIO</Text>
-                <Text style={styles.detailValue}>
-                  14:30
-                </Text>
+                <Text style={styles.detailValue}>{formattedTime}</Text>
                 <Text style={styles.detailMeta}>
-                  Duração estimada: 45 min
+                  Duração estimada: {service.duration} min
                 </Text>
               </View>
             </View>
@@ -472,23 +591,52 @@ export default function BookingConfirmationScreen() {
           {/* PRICE */}
           <View style={styles.priceCard}>
             <View>
-              <Text style={styles.priceLabel}>
-                TOTAL DO AGENDAMENTO
-              </Text>
-
+              <Text style={styles.priceLabel}>TOTAL DO AGENDAMENTO</Text>
               <Text style={styles.priceTitle}>
-                12.000 Kz
+                {formatPrice(service.price)}
               </Text>
             </View>
 
             <View style={styles.priceIcon}>
-              <Ionicons
-                name="wallet-outline"
-                size={21}
-                color="#111111"
-              />
+              <Ionicons name="wallet-outline" size={21} color="#111111" />
             </View>
           </View>
+
+          {/* ERROR BANNER */}
+          {submitErrorMessage ? (
+            <View style={styles.errorBanner}>
+              <View style={styles.errorBannerIcon}>
+                <Ionicons
+                  name="alert-circle-outline"
+                  size={19}
+                  color="#B4231F"
+                />
+              </View>
+
+              <View style={styles.errorBannerContent}>
+                <Text style={styles.errorBannerTitle}>
+                  {submitErrorCode === 'APPOINTMENT_NOT_AVAILABLE'
+                    ? 'Este horário já não está disponível'
+                    : 'Não foi possível confirmar'}
+                </Text>
+
+                <Text style={styles.errorBannerText}>
+                  {submitErrorMessage}
+                </Text>
+
+                {submitErrorCode === 'APPOINTMENT_NOT_AVAILABLE' ? (
+                  <Pressable
+                    onPress={handlePickAnotherTime}
+                    style={styles.errorBannerButton}
+                  >
+                    <Text style={styles.errorBannerButtonText}>
+                      Escolher outro horário
+                    </Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            </View>
+          ) : null}
 
           {/* POLICY */}
           <View style={styles.policyCard}>
@@ -501,50 +649,12 @@ export default function BookingConfirmationScreen() {
             </View>
 
             <View style={styles.policyContent}>
-              <Text style={styles.policyTitle}>
-                Reserva segura
-              </Text>
+              <Text style={styles.policyTitle}>Reserva segura</Text>
 
               <Text style={styles.policyText}>
-                Pode cancelar ou alterar o seu agendamento de acordo
-                com a política do espaço. Recomendamos chegar pelo
-                menos 5 minutos antes.
-              </Text>
-            </View>
-          </View>
-
-          {/* CHECKLIST */}
-          <View style={styles.checklist}>
-            <View style={styles.checkItem}>
-              <Ionicons
-                name="checkmark-circle"
-                size={18}
-                color="#111111"
-              />
-              <Text style={styles.checkText}>
-                Serviço selecionado
-              </Text>
-            </View>
-
-            <View style={styles.checkItem}>
-              <Ionicons
-                name="checkmark-circle"
-                size={18}
-                color="#111111"
-              />
-              <Text style={styles.checkText}>
-                Profissional selecionado
-              </Text>
-            </View>
-
-            <View style={styles.checkItem}>
-              <Ionicons
-                name="checkmark-circle"
-                size={18}
-                color="#111111"
-              />
-              <Text style={styles.checkText}>
-                Data e horário selecionados
+                Pode cancelar ou alterar o seu agendamento de acordo com a
+                política do espaço. Recomendamos chegar pelo menos 5 minutos
+                antes.
               </Text>
             </View>
           </View>
@@ -553,32 +663,24 @@ export default function BookingConfirmationScreen() {
         </ScrollView>
 
         {/* BOTTOM CTA */}
-        <BlurView
-          intensity={88}
-          tint="light"
-          style={styles.bottomBar}
-        >
+        <BlurView intensity={88} tint="light" style={styles.bottomBar}>
           <View style={styles.bottomBarInner}>
             <View style={styles.totalPreview}>
-              <Text style={styles.totalPreviewLabel}>
-                TOTAL
-              </Text>
-
+              <Text style={styles.totalPreviewLabel}>TOTAL</Text>
               <Text style={styles.totalPreviewValue}>
-                12.000 Kz
+                {formatPrice(service.price)}
               </Text>
             </View>
 
             <Animated.View
               style={[
                 styles.confirmButtonWrapper,
-                {
-                  transform: [{ scale: buttonScale }],
-                },
+                { transform: [{ scale: buttonScale }] },
               ]}
             >
               <Pressable
                 onPress={handleConfirm}
+                disabled={submitting}
                 style={({ pressed }) => [
                   styles.confirmButton,
                   pressed && styles.pressed,
@@ -588,15 +690,19 @@ export default function BookingConfirmationScreen() {
                   colors={['#111111', '#292929']}
                   style={styles.confirmGradient}
                 >
-                  <Ionicons
-                    name="checkmark-circle-outline"
-                    size={18}
-                    color="#FFFFFF"
-                  />
+                  {submitting ? (
+                    <ActivityIndicator color="#FFFFFF" />
+                  ) : (
+                    <>
+                      <Ionicons
+                        name="checkmark-circle-outline"
+                        size={18}
+                        color="#FFFFFF"
+                      />
 
-                  <Text style={styles.confirmText}>
-                    Confirmar
-                  </Text>
+                      <Text style={styles.confirmText}>Confirmar</Text>
+                    </>
+                  )}
                 </LinearGradient>
               </Pressable>
             </Animated.View>
@@ -623,6 +729,36 @@ const styles = StyleSheet.create({
 
   safeArea: {
     flex: 1,
+  },
+
+  centerState: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 30,
+  },
+
+  errorTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#111111',
+    textAlign: 'center',
+  },
+
+  errorButton: {
+    marginTop: 18,
+    height: 44,
+    paddingHorizontal: 20,
+    borderRadius: 16,
+    backgroundColor: '#111111',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  errorButtonText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '800',
   },
 
   successSafeArea: {
@@ -797,21 +933,14 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 18,
     bottom: 17,
+    right: 60,
   },
 
   spaceImageBrand: {
     fontSize: 17,
-    letterSpacing: 3,
+    letterSpacing: 1,
     fontWeight: '900',
     color: '#FFFFFF',
-  },
-
-  spaceImageBrandSmall: {
-    fontSize: 8,
-    letterSpacing: 4,
-    fontWeight: '800',
-    color: 'rgba(255,255,255,0.72)',
-    marginTop: 1,
   },
 
   ratingBadge: {
@@ -998,6 +1127,60 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
+  errorBanner: {
+    marginTop: 15,
+    padding: 15,
+    borderRadius: 20,
+    backgroundColor: 'rgba(180,35,31,0.07)',
+    borderWidth: 1,
+    borderColor: 'rgba(180,35,31,0.18)',
+    flexDirection: 'row',
+  },
+
+  errorBannerIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 12,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 11,
+  },
+
+  errorBannerContent: {
+    flex: 1,
+  },
+
+  errorBannerTitle: {
+    fontSize: 11,
+    fontWeight: '900',
+    color: '#8A1F1C',
+    marginBottom: 4,
+  },
+
+  errorBannerText: {
+    fontSize: 10,
+    lineHeight: 15,
+    color: '#8A1F1C',
+  },
+
+  errorBannerButton: {
+    marginTop: 10,
+    alignSelf: 'flex-start',
+    height: 34,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    backgroundColor: '#111111',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  errorBannerButtonText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+
   policyCard: {
     marginTop: 15,
     padding: 15,
@@ -1034,24 +1217,6 @@ const styles = StyleSheet.create({
     lineHeight: 15,
     color: '#777773',
     fontWeight: '500',
-  },
-
-  checklist: {
-    marginTop: 17,
-    gap: 9,
-    paddingHorizontal: 4,
-  },
-
-  checkItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-
-  checkText: {
-    fontSize: 10,
-    color: '#696965',
-    fontWeight: '700',
   },
 
   bottomSpace: {

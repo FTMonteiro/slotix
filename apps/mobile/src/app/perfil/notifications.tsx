@@ -2,9 +2,9 @@
 
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useRouter } from 'expo-router';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
-  Alert,
+  ActivityIndicator,
   FlatList,
   Pressable,
   SafeAreaView,
@@ -15,17 +15,48 @@ import {
   View,
 } from 'react-native';
 
+import type { NotificationDTO } from '@slotix/types';
+import {
+  listNotifications,
+  markAllNotificationsRead,
+  markNotificationRead,
+} from '../../services/notifications';
+
 type IconName = keyof typeof Ionicons.glyphMap;
 
-type NotificationItem = {
-  id: string;
-  title: string;
-  message: string;
-  time: string;
-  icon: IconName;
-  type: 'booking' | 'success' | 'cancel' | 'message' | 'favorite';
-  read: boolean;
-};
+function getIconForType(type: string): IconName {
+  switch (type) {
+    case 'booking':
+      return 'calendar-outline';
+    case 'success':
+      return 'checkmark-circle';
+    case 'cancel':
+      return 'close-circle-outline';
+    case 'message':
+      return 'chatbubble-ellipses-outline';
+    case 'favorite':
+      return 'heart-outline';
+    default:
+      return 'notifications-outline';
+  }
+}
+
+function formatRelativeTime(iso: string): string {
+  const date = new Date(iso);
+  const diffMinutes = Math.floor((Date.now() - date.getTime()) / 60000);
+
+  if (diffMinutes < 1) return 'Agora';
+  if (diffMinutes < 60) return `Há ${diffMinutes} min`;
+
+  const diffHours = Math.floor(diffMinutes / 60);
+  if (diffHours < 24) return `Há ${diffHours} h`;
+
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays === 1) return 'Ontem';
+  if (diffDays < 7) return `Há ${diffDays} dias`;
+
+  return date.toLocaleDateString('pt-AO');
+}
 
 const COLORS = {
   background: '#F5F5F2',
@@ -45,71 +76,41 @@ const COLORS = {
   purpleSoft: '#F1EEFF',
 };
 
-const INITIAL_NOTIFICATIONS: NotificationItem[] = [
-  {
-    id: '1',
-    title: 'Agendamento confirmado',
-    message: 'O seu agendamento foi confirmado com sucesso.',
-    time: 'Agora',
-    icon: 'checkmark-circle',
-    type: 'success',
-    read: false,
-  },
-  {
-    id: '2',
-    title: 'Lembrete de agendamento',
-    message: 'Tem um agendamento amanhã às 10:00.',
-    time: 'Há 2 h',
-    icon: 'calendar-outline',
-    type: 'booking',
-    read: false,
-  },
-  {
-    id: '3',
-    title: 'Novo espaço favorito',
-    message: 'Um espaço que você segue adicionou novos horários.',
-    time: 'Há 5 h',
-    icon: 'heart-outline',
-    type: 'favorite',
-    read: true,
-  },
-  {
-    id: '4',
-    title: 'Mensagem recebida',
-    message: 'Você recebeu uma nova mensagem do espaço.',
-    time: 'Ontem',
-    icon: 'chatbubble-ellipses-outline',
-    type: 'message',
-    read: true,
-  },
-  {
-    id: '5',
-    title: 'Agendamento cancelado',
-    message: 'Um dos seus agendamentos foi cancelado.',
-    time: 'Ontem',
-    icon: 'close-circle-outline',
-    type: 'cancel',
-    read: true,
-  },
-];
-
 export default function NotificationsScreen() {
   const router = useRouter();
 
-  const [notifications, setNotifications] = useState<NotificationItem[]>(
-    INITIAL_NOTIFICATIONS,
-  );
+  const [notifications, setNotifications] = useState<NotificationDTO[]>([]);
+  const [loading, setLoading] = useState(true);
 
   const [bookingNotifications, setBookingNotifications] = useState(true);
   const [messagesNotifications, setMessagesNotifications] = useState(true);
   const [favoriteNotifications, setFavoriteNotifications] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    listNotifications()
+      .then((data) => {
+        if (!cancelled) setNotifications(data);
+      })
+      .catch(() => {
+        if (!cancelled) setNotifications([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const unreadCount = useMemo(
     () => notifications.filter((item) => !item.read).length,
     [notifications],
   );
 
-  const getIconBackground = (type: NotificationItem['type']) => {
+  const getIconBackground = (type: string) => {
     switch (type) {
       case 'success':
         return COLORS.greenSoft;
@@ -124,7 +125,7 @@ export default function NotificationsScreen() {
     }
   };
 
-  const getIconColor = (type: NotificationItem['type']) => {
+  const getIconColor = (type: string) => {
     switch (type) {
       case 'success':
         return COLORS.green;
@@ -139,81 +140,54 @@ export default function NotificationsScreen() {
     }
   };
 
-  const markAsRead = (id: string) => {
+  const markAsRead = async (id: string) => {
+    const target = notifications.find((item) => item.id === id);
+    if (!target || target.read) return;
+
     setNotifications((current) =>
       current.map((item) =>
-        item.id === id
-          ? {
-              ...item,
-              read: true,
-            }
-          : item,
+        item.id === id ? { ...item, read: true } : item,
       ),
     );
+
+    try {
+      await markNotificationRead(id);
+    } catch {
+      setNotifications((current) =>
+        current.map((item) =>
+          item.id === id ? { ...item, read: false } : item,
+        ),
+      );
+    }
   };
 
-  const markAllAsRead = () => {
+  const markAllAsRead = async () => {
+    if (unreadCount === 0) return;
+
+    const previous = notifications;
+
     setNotifications((current) =>
       current.map((item) => ({
         ...item,
         read: true,
       })),
     );
-  };
 
-  const deleteNotification = (id: string) => {
-    setNotifications((current) =>
-      current.filter((item) => item.id !== id),
-    );
-  };
-
-  const confirmDelete = (id: string) => {
-    Alert.alert(
-      'Eliminar notificação',
-      'Deseja realmente eliminar esta notificação?',
-      [
-        {
-          text: 'Cancelar',
-          style: 'cancel',
-        },
-        {
-          text: 'Eliminar',
-          style: 'destructive',
-          onPress: () => deleteNotification(id),
-        },
-      ],
-    );
-  };
-
-  const clearAllNotifications = () => {
-    if (notifications.length === 0) return;
-
-    Alert.alert(
-      'Limpar notificações',
-      'Deseja eliminar todas as notificações?',
-      [
-        {
-          text: 'Cancelar',
-          style: 'cancel',
-        },
-        {
-          text: 'Eliminar tudo',
-          style: 'destructive',
-          onPress: () => setNotifications([]),
-        },
-      ],
-    );
+    try {
+      await markAllNotificationsRead();
+    } catch {
+      setNotifications(previous);
+    }
   };
 
   const renderNotification = ({
     item,
   }: {
-    item: NotificationItem;
+    item: NotificationDTO;
   }) => {
     return (
       <Pressable
-        onPress={() => markAsRead(item.id)}
-        onLongPress={() => confirmDelete(item.id)}
+        onPress={() => void markAsRead(item.id)}
         style={({ pressed }) => [
           styles.notificationCard,
           !item.read && styles.unreadCard,
@@ -229,7 +203,7 @@ export default function NotificationsScreen() {
           ]}
         >
           <Ionicons
-            name={item.icon}
+            name={getIconForType(item.type)}
             size={21}
             color={getIconColor(item.type)}
           />
@@ -258,23 +232,29 @@ export default function NotificationsScreen() {
           </Text>
 
           <View style={styles.notificationBottom}>
-            <Text style={styles.notificationTime}>{item.time}</Text>
-
-            <Pressable
-              hitSlop={10}
-              onPress={() => confirmDelete(item.id)}
-            >
-              <Ionicons
-                name="ellipsis-horizontal"
-                size={18}
-                color={COLORS.muted}
-              />
-            </Pressable>
+            <Text style={styles.notificationTime}>
+              {formatRelativeTime(item.createdAt)}
+            </Text>
           </View>
         </View>
       </Pressable>
     );
   };
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <StatusBar
+          barStyle="dark-content"
+          backgroundColor={COLORS.background}
+        />
+
+        <View style={[styles.container, styles.loadingContainer]}>
+          <ActivityIndicator size="large" color={COLORS.black} />
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -311,7 +291,7 @@ export default function NotificationsScreen() {
           </View>
 
           <Pressable
-            onPress={markAllAsRead}
+            onPress={() => void markAllAsRead()}
             disabled={unreadCount === 0}
             style={({ pressed }) => [
               styles.headerAction,
@@ -347,15 +327,6 @@ export default function NotificationsScreen() {
                   Fique por dentro das novidades do SLOTIX
                 </Text>
               </View>
-
-              {notifications.length > 0 && (
-                <Pressable
-                  onPress={clearAllNotifications}
-                  hitSlop={8}
-                >
-                  <Text style={styles.clearText}>Limpar</Text>
-                </Pressable>
-              )}
             </View>
           }
           ListEmptyComponent={
@@ -508,6 +479,11 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: COLORS.background,
+  },
+
+  loadingContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 
   header: {

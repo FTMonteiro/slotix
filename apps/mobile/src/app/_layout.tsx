@@ -1,7 +1,8 @@
 
-import React from 'react';
+import React, { useEffect } from 'react';
 
 import {
+  ActivityIndicator,
   StatusBar,
   StyleSheet,
   View,
@@ -10,6 +11,7 @@ import {
 
 import {
   Stack,
+  useRouter,
   useSegments,
 } from 'expo-router';
 
@@ -19,8 +21,20 @@ import {
 
 import FloatingNavigation from '@/components/FloatingNavigation';
 import { Colors } from '@/constants/theme';
+import { AuthProvider, useAuth } from '../contexts/AuthContext';
+import { FavoritesProvider } from '../contexts/FavoritesContext';
 
 export default function RootLayout() {
+  return (
+    <AuthProvider>
+      <FavoritesProvider>
+        <RootLayoutContent />
+      </FavoritesProvider>
+    </AuthProvider>
+  );
+}
+
+function RootLayoutContent() {
   /*
    * Detecta automaticamente o tema definido
    * no telefone:
@@ -51,9 +65,40 @@ export default function RootLayout() {
    * não devem mostrar a navegação inferior.
    */
   const segments = useSegments();
+  const router = useRouter();
 
   const isAuthRoute =
     segments[0] === '(auth)';
+
+  /*
+   * Nenhum ecrã pedia sessão antes (os dados eram todos mock).
+   * Agora que appointments/favorites/perfil dependem de um
+   * utilizador real, sem sessão válida volta sempre para o login.
+   */
+  const { isAuthenticated, isLoading } = useAuth();
+
+  useEffect(() => {
+    if (isLoading) return;
+    if (!isAuthenticated && !isAuthRoute) {
+      router.replace('/login');
+    }
+  }, [isLoading, isAuthenticated, isAuthRoute, router]);
+
+  if (isLoading) {
+    return (
+      <SafeAreaProvider>
+        <View
+          style={[
+            styles.container,
+            styles.loadingContainer,
+            { backgroundColor: colors.background },
+          ]}
+        >
+          <ActivityIndicator color={colors.primary} />
+        </View>
+      </SafeAreaProvider>
+    );
+  }
 
   return (
     <SafeAreaProvider>
@@ -132,6 +177,11 @@ export default function RootLayout() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+
+  loadingContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 
   stackContainer: {

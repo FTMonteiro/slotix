@@ -25,6 +25,10 @@ export const listBusinessesQuerySchema = z.object({
   latitude: z.coerce.number().min(-90).max(90).optional(),
   longitude: z.coerce.number().min(-180).max(180).optional(),
   radiusKm: z.coerce.number().positive().optional(),
+  // Omitted keeps the existing default (newest first) — this is opt-in so nothing that
+  // already calls this endpoint changes behavior. "bestPrice" isn't offered here: it
+  // depends on a query-matched service, a concept that only exists in /search.
+  sortBy: z.enum(["recommended", "nearest", "topRated"]).optional(),
   page: z.coerce.number().int().positive().default(1),
   limit: z.coerce.number().int().positive().max(100).default(20),
 });
